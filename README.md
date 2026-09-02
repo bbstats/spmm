@@ -1,2 +1,2 @@
 # spmm
-SPM based on mixed modeling for more stable coefficients, plus seasonal/playoff coefficient changes
+NBA SPM based on RAPM mixed models for more stable coefficients, plus seasonal/playoff coefficient changes
