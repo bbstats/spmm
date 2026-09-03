@@ -225,3 +225,7 @@ data/
 *.parquet
 !outputs/*.parquet
 outputs/*.npy
+
+# scratch renders
+outputs/_*.png
+outputs/_*.html

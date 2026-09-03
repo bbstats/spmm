@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NBA box-score coefficients across eras</title>
+<meta name="description" content="How the mapping from box score to on-court impact changed from 1996-97 to 2025-26, estimated by mixed-model RAPM.">
+<style>
+  :root { color-scheme: light; --surface:#fcfcfb; --text:#0b0b0b;
+           --text2:#52514e; --grid:#e6e5e1; --o:#2a78d6; --d:#eb6834; }
+  :root[data-theme="dark"] { color-scheme: dark; --surface:#1a1a19; --text:#ffffff;
+           --text2:#c3c2b7; --grid:#333331; --o:#3987e5; --d:#d95926; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { color-scheme: dark;
+           --surface:#1a1a19; --text:#ffffff; --text2:#c3c2b7;
+           --grid:#333331; --o:#3987e5; --d:#d95926; } }
+  body { margin:0; background:var(--surface); color:var(--text); font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+          -webkit-font-smoothing:antialiased; line-height:1.55; }
+  .wrap { max-width:900px; margin:0 auto; padding:40px 24px 72px; }
+  h1 { font-size:30px; line-height:1.2; margin:0 0 10px; font-weight:600; letter-spacing:-0.015em; }
+  h2 { font-size:19px; margin:44px 0 6px; font-weight:600; letter-spacing:-0.01em; }
+  p { color:var(--text2); font-size:15.5px; max-width:70ch; margin:0 0 12px; }
+  a { color:var(--o); }
+  .cta { display:inline-block; margin:18px 0 6px; padding:11px 18px; border:1px solid var(--grid);
+          border-radius:9px; text-decoration:none; color:var(--text); font-size:15px; font-weight:500; }
+  .cta:hover { border-color:var(--o); }
+  figure { margin:26px 0 8px; }
+  img { width:100%; height:auto; border-radius:8px; }
+  figcaption { color:var(--text2); font-size:13.5px; margin-top:8px; }
+  ul { color:var(--text2); font-size:15px; max-width:70ch; padding-left:20px; }
+  li { margin-bottom:8px; }
+  button.theme { float:right; background:transparent; color:var(--text2); border:1px solid var(--grid);
+      border-radius:7px; padding:6px 12px; font-size:12px; cursor:pointer; font-family:inherit; }
+</style></head><body><div class="wrap">
+<button class="theme" id="t">Dark</button>
+<h1>What the box score has been worth, 1997&ndash;2026</h1>
+<p>Thirty seasons of play-by-play, turned into stints, turned into one ridge regression per
+three-season window. The box score enters as unpenalized fixed effects beside ridge-penalized
+player-season offense and defense effects, fit jointly by Henderson's mixed model equations, so the
+coefficients land on the same scale as on-court impact: points per 100 possessions per unit per 100.
+The defensive side is flipped so positive is good on both.</p>
+<a class="cta" href="coefs.html">Open the interactive figure &rarr;</a>
+<figure><img src="img/movers.png" alt="Dot-and-whisker of the ten largest coefficient changes" loading="lazy"><figcaption>The ten coefficients that moved most from 1997-99 to 2024-26, with 95% intervals on the change.</figcaption></figure>
+<figure><img src="img/playoff_delta.png" alt="Playoff minus regular-season coefficients by era third" loading="lazy"><figcaption>The playoff block: how much each coefficient differs in the playoffs, by era third.</figcaption></figure>
+<figure><img src="img/correlations.png" alt="Correlation heatmaps of the 13 per-100 rates" loading="lazy"><figcaption>Who accumulates what, together. A coefficient can move because the value changed or because the players did.</figcaption></figure>
+<h2>Method, briefly</h2>
+<ul>
+<li><b>Data.</b> Every regular-season and playoff game from 1996-97 to 2025-26, reconstructed from
+stats.nba.com play-by-play into possessions with the ten players on the floor. Points reconcile to
+the box score in every game, and 99.9% of possessions have five players a side.</li>
+<li><b>Cross-fitted rates.</b> Each season's games are split in half. The coefficients fit on one
+half use box-score rates computed only from the other, so a coefficient never sees the box score of
+the stints it is fit on. Using full-season rates inflates the three-point coefficient by more than
+seven standard errors.</li>
+<li><b>One &lambda; for the whole era</b>, chosen once on two windows by cross-validation and REML,
+so shrinkage cannot manufacture drift. &lambda;&times;3 and &divide;3 are on the figure.</li>
+<li><b>Standard errors</b> are the model's, about 10% conservative against a game-level Bayesian
+bootstrap.</li>
+</ul>
+<h2>Everything else</h2>
+<p>Code, coefficient tables as CSV, per-season data diagnostics and the checkpoint logs:
+<a href="https://github.com/bbstats/spmm">github.com/bbstats/spmm</a>.</p>
+<script>
+const b=document.getElementById("t");
+function set(m) { document.documentElement.dataset.theme=m; b.textContent = m==="dark" ? "Light" : "Dark"; }
+b.onclick=() => set(document.documentElement.dataset.theme==="dark" ? "light" : "dark");
+if (matchMedia("(prefers-color-scheme: dark)").matches) set("dark");
+</script>
+</div></body></html>
