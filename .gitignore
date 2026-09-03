@@ -216,3 +216,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
+# era-coefs: raw and intermediate data caches. Regenerate with
+#   python scripts/01_ingest.py 1997 2026 RS,PO
+#   python scripts/02_stints.py 1997 2026 RS,PO
+data/
+*.parquet
+!outputs/*.parquet
+outputs/*.npy

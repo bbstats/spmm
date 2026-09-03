@@ -1,0 +1,104 @@
+lam 7114 ratio 0.6124 | plug-in 23258 ratio 0.25 | pad_target poss_conditional
+lam_delta grid: [100.0, 300.0, 1000.0, 3000.0, 10000.0, 30000.0, 100000.0, 1000000.0]
+
+=== era third 1997-2006: rows 658068 (PO 42783), player-seasons 4433, series 150  (1s) ===
+  fold 1/5 (6s)
+  fold 2/5 (12s)
+  fold 3/5 (18s)
+  fold 4/5 (24s)
+  fold 5/5 (30s)
+ lam_delta  mean_mse  diff_vs_best  diff_se  in_1se_band      pool
+     100.0  3705.427         2.913    1.032        False 1997-2006
+     300.0  3705.418         2.904    1.030        False 1997-2006
+    1000.0  3705.385         2.871    1.022        False 1997-2006
+    3000.0  3705.297         2.783    1.001        False 1997-2006
+   10000.0  3705.044         2.530    0.938        False 1997-2006
+   30000.0  3704.570         2.056    0.804        False 1997-2006
+  100000.0  3703.787         1.274    0.543        False 1997-2006
+ 1000000.0  3702.514         0.000    0.000         True 1997-2006
+  lam_delta pick: 1e+06; 1-SE band [1000000.0]
+  delta at lam_delta=100 (reporting) vs 1e+06 (CV pick): max |delta| 0.722 vs 0.058
+  RS-only fit -> PO rows: zero-prior 3714.2  joint 3702.7  diff -11.5
+
+=== era third 2007-2016: rows 693913 (PO 46862), player-seasons 4649, series 150  (2s) ===
+  fold 1/5 (6s)
+  fold 2/5 (13s)
+  fold 3/5 (19s)
+  fold 4/5 (26s)
+  fold 5/5 (35s)
+ lam_delta  mean_mse  diff_vs_best  diff_se  in_1se_band      pool
+     100.0  3837.856         1.254    0.771        False 2007-2016
+     300.0  3837.852         1.250    0.770        False 2007-2016
+    1000.0  3837.836         1.234    0.769        False 2007-2016
+    3000.0  3837.794         1.192    0.764        False 2007-2016
+   10000.0  3837.666         1.064    0.749        False 2007-2016
+   30000.0  3837.417         0.815    0.706        False 2007-2016
+  100000.0  3837.052         0.450    0.577         True 2007-2016
+ 1000000.0  3836.602         0.000    0.000         True 2007-2016
+  lam_delta pick: 1e+06; 1-SE band [100000.0, 1000000.0]
+  delta at lam_delta=100 (reporting) vs 1e+06 (CV pick): max |delta| 0.452 vs 0.070
+  RS-only fit -> PO rows: zero-prior 3848.8  joint 3837.3  diff -11.5
+
+=== era third 2017-2026: rows 720159 (PO 48185), player-seasons 5497, series 150  (2s) ===
+  fold 1/5 (8s)
+  fold 2/5 (16s)
+  fold 3/5 (23s)
+  fold 4/5 (35s)
+  fold 5/5 (45s)
+ lam_delta  mean_mse  diff_vs_best  diff_se  in_1se_band      pool
+     100.0  4170.463         1.470    0.965        False 2017-2026
+     300.0  4170.458         1.464    0.964        False 2017-2026
+    1000.0  4170.437         1.444    0.958        False 2017-2026
+    3000.0  4170.381         1.388    0.942        False 2017-2026
+   10000.0  4170.211         1.218    0.889        False 2017-2026
+   30000.0  4169.876         0.882    0.772        False 2017-2026
+  100000.0  4169.372         0.378    0.539         True 2017-2026
+ 1000000.0  4168.993         0.000    0.000         True 2017-2026
+  lam_delta pick: 1e+06; 1-SE band [100000.0, 1000000.0]
+  delta at lam_delta=100 (reporting) vs 1e+06 (CV pick): max |delta| 0.745 vs 0.115
+  RS-only fit -> PO rows: zero-prior 4181.1  joint 4175.3  diff -5.8
+
+=== delta pooled over the era (inverse-variance over the three thirds; D flipped, positive = good) ===
+side  feature   beta    se  delta  delta_se      z  po_beta  po_se
+   O     fg3m  0.974 0.051  0.374     0.183  2.042    1.348  0.190
+   O fg3_miss -0.015 0.032 -0.331     0.113 -2.927   -0.346  0.117
+   O     fg2m  0.644 0.022 -0.086     0.077 -1.110    0.558  0.081
+   O fg2_miss -0.491 0.020  0.023     0.068  0.336   -0.468  0.071
+   O      ftm  0.628 0.020 -0.113     0.068 -1.652    0.515  0.071
+   O  ft_miss -0.370 0.050 -0.003     0.156 -0.018   -0.373  0.164
+   O      orb  0.505 0.030 -0.061     0.104 -0.591    0.444  0.108
+   O      drb  0.027 0.018  0.053     0.064  0.822    0.080  0.067
+   O      ast  0.397 0.016  0.015     0.059  0.251    0.411  0.061
+   O      tov -0.690 0.043  0.301     0.151  1.998   -0.389  0.157
+   O      stl  0.525 0.058 -0.090     0.188 -0.477    0.435  0.197
+   O      blk -0.072 0.039  0.279     0.140  1.998    0.207  0.145
+   O       pf -0.302 0.024  0.034     0.090  0.375   -0.268  0.094
+   D     fg3m  0.104 0.054  0.035     0.184  0.190    0.139  0.191
+   D fg3_miss -0.192 0.033 -0.138     0.113 -1.213   -0.330  0.118
+   D     fg2m  0.056 0.024  0.095     0.078  1.227    0.151  0.081
+   D fg2_miss -0.258 0.021 -0.109     0.068 -1.598   -0.368  0.071
+   D      ftm  0.114 0.022 -0.076     0.069 -1.103    0.038  0.072
+   D  ft_miss -0.049 0.054  0.154     0.157  0.981    0.105  0.166
+   D      orb -0.084 0.032  0.011     0.104  0.107   -0.072  0.109
+   D      drb  0.421 0.019 -0.013     0.064 -0.208    0.408  0.067
+   D      ast  0.130 0.017  0.027     0.059  0.455    0.157  0.062
+   D      tov -0.510 0.046  0.263     0.151  1.738   -0.248  0.158
+   D      stl  1.447 0.062  0.180     0.189  0.955    1.627  0.199
+   D      blk  0.904 0.041 -0.351     0.140 -2.508    0.553  0.146
+   D       pf  0.047 0.026  0.058     0.091  0.642    0.106  0.094
+
+|z| > 2 on delta: [{'side': 'O', 'feature': 'fg3m', 'delta': 0.3739084670955571, 'delta_se': 0.1830805943744219}, {'side': 'O', 'feature': 'fg3_miss', 'delta': -0.33111887110651733, 'delta_se': 0.113135039090996}, {'side': 'D', 'feature': 'blk', 'delta': -0.3512553246547297, 'delta_se': 0.14002691466288686}]
+
+=== per window, lam_delta fixed at the pooled value 100 ===
+  1997-1999 done (PO rows 11465)
+  2000-2002 done (PO rows 11662)
+  2003-2005 done (PO rows 14501)
+  2006-2008 done (PO rows 14283)
+  2009-2011 done (PO rows 13460)
+  2012-2014 done (PO rows 14592)
+  2015-2017 done (PO rows 14137)
+  2018-2020 done (PO rows 14514)
+  2021-2023 done (PO rows 14354)
+  2024-2026 done (PO rows 14862)
+
+wrote outputs/coefs_playoffs.parquet (442 rows, pools ['era', 'era_third', 'window'])

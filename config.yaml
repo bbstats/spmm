@@ -1,0 +1,67 @@
+# era-coefs configuration. Every script reads this; nothing is hard-coded elsewhere.
+
+# Seasons are named by the year they end (1997 = 1996-97).
+first_season: 1997
+last_season: 2026
+windows:              # ten non-overlapping 3-season windows
+  - [1997, 1999]
+  - [2000, 2002]
+  - [2003, 2005]
+  - [2006, 2008]
+  - [2009, 2011]
+  - [2012, 2014]
+  - [2015, 2017]
+  - [2018, 2020]
+  - [2021, 2023]
+  - [2024, 2026]
+rolling_step: 1       # rolling 3-year windows for the robustness overlay
+neutral_site_seasons_po: [2020]   # 2020 bubble playoffs: home = 0
+
+features: [fg3m, fg3_miss, fg2m, fg2_miss, ftm, ft_miss, orb, drb, ast, tov, stl, blk, pf]
+
+# Regularization. lam / lam_ratio are chosen once (03_cv.py) and used in every window.
+# chosen once by scripts/03_cv.py on 2000-02 and 2012-14 (RS rows), written to outputs/lambda.yaml.
+lam_beta: 7113.8         # ridge on the two cross-fitted half-fits (beta)
+lam_ratio_beta: 0.6124   # lambda_D / lambda_O there
+lam_plugin: 23258.0      # ridge on the plug-in ratings fit (u given beta)
+lam_ratio_plugin: 0.25   # lambda_D / lambda_O there
+lam_buckets: {}       # e.g. {low_poss: 2.0}; only add after the calibration-by-bucket test says so
+low_poss_threshold: 500   # player-seasons under this many RS possessions form the "low_poss" column group
+starter_poss_threshold: 1500  # and at or above this many form "high_poss" (the starter bucket)
+lam_delta: null       # playoff block ridge; null = no delta block. Chosen by 03_cv.py step 7.
+lam_grid: {start: 100, stop: 60000, num: 28, log: true}
+lam_ratio_grid: [0.25, 0.33, 0.5, 0.75, 1.0, 1.5, 2.0]
+lam_delta_grid: [1e2, 3e2, 1e3, 3e3, 1e4, 3e4, 1e5, 1e6]
+pad_k: auto           # or a per-feature dict override, e.g. {stl: 400, blk: 600}
+pad_target: poss_conditional   # chosen at checkpoint 4 (bench prior calibration); league | poss_conditional (padding target for the EB shrinkage of the rates)
+pad_scale_grid: [0.5, 1.0, 2.0]
+min_half_poss: 20     # a split half needs at least this many possessions to enter the k estimate
+
+# Garbage time and rubber band.
+garbage_time:
+  q4_margin_late: 15    # 4th quarter, margin >= 15 with under `late_minutes` left
+  late_minutes: 6
+  q4_margin_any: 20     # or margin >= 20 at any point in the 4th
+gt_weight: 1.0
+gt_weight_robustness: [0.5, 0.0]
+margin_clip: 25
+margin_bins: [-25, -15, -8, -3, 3, 8, 15, 25]   # 7 bins for the binned-margin robustness run
+time_halves: 2
+
+cv:
+  n_folds: 5
+  seed: 0
+  lambda_windows: [[2000, 2002], [2012, 2014]]   # MixedModelRAPMCV on these two, RS only
+  validation_window: [2012, 2014]
+  poss_buckets: [0, 500, 1500, 1000000]
+
+paths:
+  raw: data/raw
+  stints: data/stints
+  box: data/box
+  outputs: outputs
+  figs: outputs/figs
+  lambda_file: outputs/lambda.yaml
+  coefs: outputs/coefs.parquet
+
+run_tags: [base, lam_x3, lam_div3, rolling, gt_half, gt_zero, margin_bins]

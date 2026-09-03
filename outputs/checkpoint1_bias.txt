@@ -1,0 +1,7 @@
+Bias experiment (20 reps each, 2 seasons x 10 teams x 12 players, 150 games/season): mean z of beta-hat by config
+                   config  O_fg3m  O_fg2m  O_ftm  O_other  D_all  sd_z
+   leak, auto k, lam 8000  -0.174  -0.229 -0.171    0.000  0.006 0.879
+no leak, auto k, lam 8000   0.527   0.164  0.459   -0.124  0.010 1.405   (lam 4x too large for that sigma2 -> SE miscalibrated)
+   leak, true k, lam 8000  -0.190  -0.233 -0.176    0.001  0.006 0.879
+  leak, auto k, lam 80000   0.315   0.065 -0.026    0.033 -0.035 1.144
+    leak, auto k, lam 800  -1.600  -1.141 -0.638    0.004  0.018 0.692

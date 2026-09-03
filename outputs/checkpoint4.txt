@@ -1,0 +1,376 @@
+window 2012-14 RS: rows=182568 player-seasons=1429 games=3449
+
+=== 1. per-season k (possessions to half-weight) ===
+      fg3m  fg3_miss  fg2m  fg2_miss    ftm  ft_miss   orb   drb   ast    tov    stl    blk     pf
+2012  94.0      50.0  86.0     108.0  166.0    239.0  83.0  99.0  43.0  322.0  560.0  100.0  189.0
+2013  77.0      40.0  93.0     102.0  154.0    268.0  77.0  93.0  47.0  344.0  520.0  103.0  202.0
+2014  89.0      48.0  82.0      92.0  155.0    251.0  86.0  75.0  44.0  366.0  505.0  133.0  231.0
+sigma2_within:
+       fg3m  fg3_miss   fg2m  fg2_miss    ftm  ft_miss    orb    drb    ast    tov    stl    blk     pf
+2012  145.0     218.0  539.0     680.0  578.0    149.0  258.0  659.0  421.0  300.0  164.0  106.0  366.0
+2013  138.0     191.0  593.0     617.0  520.0    155.0  245.0  698.0  436.0  281.0  168.0  106.0  391.0
+2014  146.0     205.0  504.0     551.0  577.0    146.0  251.0  546.0  379.0  307.0  158.0  107.0  414.0
+tau2_between:
+      fg3m  fg3_miss  fg2m  fg2_miss   ftm  ft_miss   orb   drb   ast   tov   stl   blk    pf
+2012  1.53      4.35  6.23      6.30  3.48     0.63  3.10  6.65  9.83  0.93  0.29  1.07  1.94
+2013  1.80      4.80  6.40      6.04  3.38     0.58  3.18  7.51  9.26  0.82  0.32  1.03  1.93
+2014  1.65      4.26  6.14      5.98  3.72     0.58  2.91  7.26  8.58  0.84  0.31  0.80  1.79
+
+=== 2. lambda CV curves with fold-paired SEs, REML cross-check ===
+half A: lambda: CV argmin 6632, REML 5318, CV 1-SE band [4265, 6632] -> using 5318 (reml)
+      lam  mean_mse  diff_vs_best  diff_se  in_1se_band  reml_neg2ll
+ 1134.067  3535.886         9.368    1.826        False      245.081
+ 1414.214  3533.192         6.674    1.541        False      170.698
+ 1763.564  3531.044         4.526    1.271        False      112.972
+ 2199.214  3529.386         2.868    1.018        False       69.625
+ 2742.482  3528.159         1.642    0.782        False       38.517
+ 3419.952  3527.308         0.791    0.562        False       17.686
+ 4264.776  3526.781         0.263    0.358         True        5.372
+ 5318.296  3526.531         0.013    0.171         True        0.000
+ 6632.065  3526.518         0.000    0.000         True        0.168
+ 8270.371  3526.702         0.185    0.155        False        4.622
+10313.385  3527.047         0.530    0.295        False       12.243
+12861.082  3527.515         0.998    0.419        False       22.034
+16038.131  3528.069         1.551    0.529        False       33.128
+20000.000  3528.673         2.155    0.625        False       44.791
+half B: lambda: CV argmin 6632, REML 6632, CV 1-SE band [5318, 8270] -> using 6632 (reml)
+      lam  mean_mse  diff_vs_best  diff_se  in_1se_band  reml_neg2ll
+ 1134.067  3561.676        11.015    1.614        False      249.530
+ 1414.214  3558.616         7.954    1.342        False      174.142
+ 1763.564  3556.160         5.499    1.089        False      115.751
+ 2199.214  3554.250         3.589    0.857        False       71.968
+ 2742.482  3552.820         2.159    0.646        False       40.538
+ 3419.952  3551.806         1.144    0.455        False       19.389
+ 4264.776  3551.145         0.484    0.285        False        6.655
+ 5318.296  3550.781         0.119    0.133         True        0.679
+ 6632.065  3550.661         0.000    0.000         True        0.000
+ 8270.371  3550.739         0.078    0.116         True        3.337
+10313.385  3550.971         0.310    0.216        False        9.573
+12861.082  3551.316         0.654    0.301        False       17.745
+16038.131  3551.736         1.075    0.372        False       27.041
+20000.000  3552.200         1.539    0.431        False       36.798
+plug-in: lambda: CV argmin 10313, REML 10313, CV 1-SE band [10313, 10313] -> using 10313 (reml)
+      lam  mean_mse  diff_vs_best  diff_se  in_1se_band  reml_neg2ll
+ 1134.067  3538.481        10.146    0.721        False      602.599
+ 1414.214  3536.259         7.923    0.603        False      456.972
+ 1763.564  3534.336         6.000    0.497        False      336.597
+ 2199.214  3532.716         4.380    0.402        False      239.203
+ 2742.482  3531.391         3.055    0.319        False      162.338
+ 3419.952  3530.342         2.006    0.249        False      103.496
+ 4264.776  3529.545         1.209    0.189        False       60.232
+ 5318.296  3528.972         0.636    0.137        False       30.249
+ 6632.065  3528.596         0.260    0.089        False       11.442
+ 8270.371  3528.391         0.056    0.044        False        1.922
+10313.385  3528.336         0.000    0.000         True        0.000
+12861.082  3528.409         0.073    0.045        False        4.163
+16038.131  3528.591         0.256    0.091        False       13.043
+20000.000  3528.864         0.528    0.136        False       25.394
+REML vs CV for lam_ratio (plug-in fit, beta fixed):
+ lam_ratio    lam_cv  lam_reml  min_mse  reml_min  mse_minus_best  reml_minus_best
+      0.50 12861.082 12861.082 3528.150 1.722e+06           0.000            0.000
+      0.75 10313.385 10313.385 3528.336 1.722e+06           0.186            9.720
+      1.00  8270.371  8270.371 3528.529 1.722e+06           0.379           19.572
+      1.50  6632.065  6632.065 3528.894 1.722e+06           0.744           38.411
+      2.00  6632.065  6632.065 3529.232 1.722e+06           1.082           54.784
+
+=== 3. GridSearchCV pad_scale x lam_ratio on half A (nested lambda path), fold-paired SEs ===
+ exposure__pad_scale  mm__lam_ratio  mean_mse  diff_vs_best  diff_se  in_1se_band
+                0.25           0.50  3526.443         0.000    0.000         True
+                0.25           0.75  3526.563         0.121    0.133         True
+                0.25           1.00  3526.728         0.285    0.408         True
+                0.25           1.50  3526.452         0.009    0.569         True
+                0.25           2.00  3526.750         0.307    0.739         True
+                0.50           0.50  3526.531         0.088    0.061        False
+                0.50           0.75  3526.650         0.207    0.176        False
+                0.50           1.00  3526.811         0.369    0.415         True
+                0.50           1.50  3526.530         0.087    0.567         True
+                0.50           2.00  3526.824         0.382    0.741         True
+                1.00           0.50  3526.672         0.229    0.147        False
+                1.00           0.75  3526.790         0.348    0.244        False
+                1.00           1.00  3526.946         0.503    0.429        False
+                1.00           1.50  3526.659         0.216    0.565         True
+                1.00           2.00  3526.951         0.508    0.741         True
+                2.00           0.50  3526.872         0.430    0.266        False
+                2.00           0.75  3526.991         0.548    0.346        False
+                2.00           1.00  3527.136         0.693    0.471        False
+                2.00           1.50  3526.844         0.401    0.584         True
+                2.00           2.00  3527.134         0.691    0.756         True
+                4.00           0.50  3527.128         0.685    0.416        False
+                4.00           0.75  3527.247         0.805    0.481        False
+                4.00           1.00  3527.242         0.799    0.566        False
+                4.00           1.50  3527.082         0.639    0.647         True
+                4.00           2.00  3527.523         1.081    0.710        False
+(64s)
+CV-preferred pad_scale 0.25 (k = pad_scale x variance-component k), lam_ratio 0.5; 1-SE band covers pad_scale [np.float64(0.25), np.float64(0.5), np.float64(1.0), np.float64(2.0), np.float64(4.0)] and lam_ratio [np.float64(0.5), np.float64(0.75), np.float64(1.0), np.float64(1.5), np.float64(2.0)]
+
+=== 4. calibration slopes on held-out folds (crossfit beta + plug-in u) ===
+(lambda plug-in 10313, half-fits 5939, ratio 0.75; 6s)
+       kind side     bucket  slope    se  beta_noise_var  expected_slope
+      prior    O    [0,500)  0.319 0.098             NaN             NaN
+      prior    O [500,1500)  0.837 0.035             NaN             NaN
+      prior    O [1500,inf)  1.003 0.037             NaN             NaN
+      prior    D    [0,500)  0.356 0.121             NaN             NaN
+      prior    D [500,1500)  0.745 0.040             NaN             NaN
+      prior    D [1500,inf)  1.070 0.073             NaN             NaN
+      prior    O        all  1.016 0.037           0.467           0.979
+      prior    D        all  1.020 0.067           0.502           0.943
+      prior  O+D        all  1.017   NaN           0.961           0.967
+      eblup    O    [0,500)  0.313 0.089             NaN             NaN
+      eblup    O [500,1500)  0.826 0.033             NaN             NaN
+      eblup    O [1500,inf)  0.966 0.029             NaN             NaN
+      eblup    D    [0,500)  0.478 0.133             NaN             NaN
+      eblup    D [500,1500)  0.841 0.020             NaN             NaN
+      eblup    D [1500,inf)  1.045 0.047             NaN             NaN
+      eblup    O        all  0.985 0.028             NaN             NaN
+      eblup    D        all  1.020 0.042             NaN             NaN
+      eblup  O+D        all  0.997   NaN             NaN             NaN
+joint_prior    O    [0,500)  0.276 0.093             NaN             NaN
+joint_prior    O [500,1500)  0.786 0.034             NaN             NaN
+joint_prior    O [1500,inf)  0.921 0.034             NaN             NaN
+joint_prior    D    [0,500)  0.397 0.142             NaN             NaN
+joint_prior    D [500,1500)  0.739 0.035             NaN             NaN
+joint_prior    D [1500,inf)  0.929 0.066             NaN             NaN
+    joint_u    O    [0,500)  6.115 2.553             NaN             NaN
+    joint_u    O [500,1500)  0.559 0.392             NaN             NaN
+    joint_u    O [1500,inf)  1.301 0.065             NaN             NaN
+    joint_u    D    [0,500)  3.422 1.499             NaN             NaN
+    joint_u    D [500,1500)  1.392 0.204             NaN             NaN
+    joint_u    D [1500,inf)  1.228 0.100             NaN             NaN
+joint_prior    O        all  0.945 0.036             NaN             NaN
+joint_prior    D        all  0.889 0.060             NaN             NaN
+    joint_u    O        all  1.304 0.066             NaN             NaN
+    joint_u    D        all  1.276 0.102             NaN             NaN
+joint_prior  O+D        all  0.931   NaN             NaN             NaN
+    joint_u  O+D        all  1.280   NaN             NaN             NaN
+
+lam_buckets probe: low_poss (< 500 RS possessions) ratio x -> EBLUP / joint-u slopes by bucket
+  low_poss ratio 0.5:
+   kind side     bucket  slope    se  beta_noise_var  expected_slope
+  eblup    O    [0,500)  0.320 0.090             NaN             NaN
+  eblup    O [500,1500)  0.827 0.034             NaN             NaN
+  eblup    O [1500,inf)  0.967 0.029             NaN             NaN
+  eblup    D    [0,500)  0.485 0.135             NaN             NaN
+  eblup    D [500,1500)  0.841 0.020             NaN             NaN
+  eblup    D [1500,inf)  1.045 0.046             NaN             NaN
+joint_u    O    [0,500)  3.847 1.237             NaN             NaN
+joint_u    O [500,1500)  0.580 0.391             NaN             NaN
+joint_u    O [1500,inf)  1.302 0.065             NaN             NaN
+joint_u    D    [0,500)  2.012 0.950             NaN             NaN
+joint_u    D [500,1500)  1.406 0.205             NaN             NaN
+joint_u    D [1500,inf)  1.229 0.100             NaN             NaN
+  low_poss ratio 2.0:
+   kind side     bucket  slope    se  beta_noise_var  expected_slope
+  eblup    O    [0,500)  0.309 0.089             NaN             NaN
+  eblup    O [500,1500)  0.826 0.033             NaN             NaN
+  eblup    O [1500,inf)  0.966 0.029             NaN             NaN
+  eblup    D    [0,500)  0.473 0.131             NaN             NaN
+  eblup    D [500,1500)  0.841 0.020             NaN             NaN
+  eblup    D [1500,inf)  1.045 0.047             NaN             NaN
+joint_u    O    [0,500)  7.365 3.784             NaN             NaN
+joint_u    O [500,1500)  0.557 0.392             NaN             NaN
+joint_u    O [1500,inf)  1.300 0.064             NaN             NaN
+joint_u    D    [0,500)  4.339 1.960             NaN             NaN
+joint_u    D [500,1500)  1.396 0.200             NaN             NaN
+joint_u    D [1500,inf)  1.229 0.101             NaN             NaN
+
+=== 5. padding test: prior slope by bucket (lowest bucket = padding test) vs pad_scale ===
+  pad_scale 0.5:
+ kind side     bucket  slope    se  beta_noise_var  expected_slope
+prior    O    [0,500)  0.370 0.107             NaN             NaN
+prior    O [500,1500)  0.858 0.041             NaN             NaN
+prior    O [1500,inf)  1.029 0.041             NaN             NaN
+prior    D    [0,500)  0.326 0.108             NaN             NaN
+prior    D [500,1500)  0.756 0.038             NaN             NaN
+prior    D [1500,inf)  1.116 0.073             NaN             NaN
+eblup    O    [0,500)  0.347 0.100             NaN             NaN
+eblup    O [500,1500)  0.836 0.037             NaN             NaN
+eblup    O [1500,inf)  0.981 0.031             NaN             NaN
+eblup    D    [0,500)  0.444 0.126             NaN             NaN
+eblup    D [500,1500)  0.841 0.019             NaN             NaN
+eblup    D [1500,inf)  1.062 0.047             NaN             NaN
+  pad_scale 1.0:
+ kind side     bucket  slope    se  beta_noise_var  expected_slope
+prior    O    [0,500)  0.319 0.098             NaN             NaN
+prior    O [500,1500)  0.837 0.035             NaN             NaN
+prior    O [1500,inf)  1.003 0.037             NaN             NaN
+prior    D    [0,500)  0.356 0.121             NaN             NaN
+prior    D [500,1500)  0.745 0.040             NaN             NaN
+prior    D [1500,inf)  1.070 0.073             NaN             NaN
+eblup    O    [0,500)  0.313 0.089             NaN             NaN
+eblup    O [500,1500)  0.826 0.033             NaN             NaN
+eblup    O [1500,inf)  0.966 0.029             NaN             NaN
+eblup    D    [0,500)  0.478 0.133             NaN             NaN
+eblup    D [500,1500)  0.841 0.020             NaN             NaN
+eblup    D [1500,inf)  1.045 0.047             NaN             NaN
+  pad_scale 2.0:
+ kind side     bucket  slope    se  beta_noise_var  expected_slope
+prior    O    [0,500)  0.267 0.100             NaN             NaN
+prior    O [500,1500)  0.807 0.028             NaN             NaN
+prior    O [1500,inf)  0.967 0.031             NaN             NaN
+prior    D    [0,500)  0.397 0.132             NaN             NaN
+prior    D [500,1500)  0.733 0.044             NaN             NaN
+prior    D [1500,inf)  1.013 0.072             NaN             NaN
+eblup    O    [0,500)  0.282 0.089             NaN             NaN
+eblup    O [500,1500)  0.814 0.030             NaN             NaN
+eblup    O [1500,inf)  0.947 0.026             NaN             NaN
+eblup    D    [0,500)  0.524 0.133             NaN             NaN
+eblup    D [500,1500)  0.844 0.024             NaN             NaN
+eblup    D [1500,inf)  1.023 0.046             NaN             NaN
+
+=== 6. shrinkage table (plug-in fit, lambda = 10313) ===
+ season side     bucket  n_players  shrink_mean  shrink_p10  shrink_p90  naive_mean
+   2012    O    [0,500)         91        0.020       0.003       0.036       0.021
+   2012    O [500,1500)        119        0.078       0.049       0.105       0.086
+   2012    O [1500,inf)        268        0.168       0.127       0.200       0.217
+   2012    D    [0,500)         91        0.026       0.004       0.048       0.027
+   2012    D [500,1500)        119        0.100       0.064       0.135       0.112
+   2012    D [1500,inf)        268        0.204       0.159       0.238       0.269
+   2013    O    [0,500)         72        0.017       0.001       0.038       0.018
+   2013    O [500,1500)         96        0.076       0.049       0.103       0.083
+   2013    O [1500,inf)        301        0.187       0.133       0.224       0.244
+   2013    D    [0,500)         72        0.022       0.002       0.050       0.023
+   2013    D [500,1500)         95        0.098       0.065       0.131       0.107
+   2013    D [1500,inf)        302        0.225       0.166       0.266       0.299
+   2014    O    [0,500)         92        0.019       0.002       0.038       0.020
+   2014    O [500,1500)         87        0.076       0.051       0.104       0.082
+   2014    O [1500,inf)        303        0.191       0.135       0.231       0.249
+   2014    D    [0,500)         92        0.025       0.003       0.051       0.026
+   2014    D [500,1500)         87        0.097       0.066       0.132       0.106
+   2014    D [1500,inf)        303        0.230       0.169       0.273       0.305
+
+=== 7. game-level bootstrap of the crossfit beta (200 reps, lambda half-fits 5939) ===
+  bootstrap 25/200  (19s)
+  bootstrap 50/200  (39s)
+  bootstrap 75/200  (58s)
+  bootstrap 100/200  (77s)
+  bootstrap 125/200  (96s)
+  bootstrap 150/200  (116s)
+  bootstrap 175/200  (135s)
+  bootstrap 200/200  (154s)
+side  feature   beta  se_formula  se_boot  ratio_boot_over_formula  boot_mean_minus_hat_in_se
+   O     fg3m  1.039       0.170    0.158                    0.932                     -1.505
+   O fg3_miss -0.018       0.106    0.098                    0.925                      0.986
+   O     fg2m  0.603       0.072    0.068                    0.948                     -2.165
+   O fg2_miss -0.498       0.060    0.056                    0.926                      2.054
+   O      ftm  0.627       0.067    0.055                    0.823                     -1.345
+   O  ft_miss -0.516       0.161    0.133                    0.826                      0.778
+   O      orb  0.416       0.094    0.082                    0.877                     -1.287
+   O      drb -0.014       0.057    0.055                    0.957                      0.427
+   O      ast  0.453       0.053    0.045                    0.858                     -1.165
+   O      tov -0.749       0.149    0.125                    0.843                      1.905
+   O      stl  0.762       0.190    0.175                    0.924                     -0.663
+   O      blk -0.010       0.131    0.117                    0.888                     -0.010
+   O       pf -0.263       0.085    0.073                    0.864                     -0.257
+   D     fg3m  0.194       0.176    0.141                    0.803                     -0.257
+   D fg3_miss  0.183       0.109    0.090                    0.821                      0.083
+   D     fg2m  0.028       0.075    0.058                    0.774                     -0.038
+   D fg2_miss  0.229       0.063    0.049                    0.783                     -0.230
+   D      ftm -0.185       0.070    0.054                    0.765                      0.887
+   D  ft_miss  0.357       0.168    0.139                    0.823                     -0.590
+   D      orb  0.227       0.098    0.084                    0.855                     -0.754
+   D      drb -0.388       0.059    0.057                    0.959                      1.041
+   D      ast -0.115       0.054    0.050                    0.914                      0.350
+   D      tov  0.486       0.156    0.141                    0.905                     -0.888
+   D      stl -1.401       0.198    0.171                    0.862                      1.504
+   D      blk -0.872       0.136    0.109                    0.798                      1.070
+   D       pf  0.048       0.088    0.080                    0.910                     -0.125
+median ratio 0.863   mean 0.868   range [0.76, 0.96]
+off-diagonal correlations: formula vs bootstrap corr = 0.874, mean abs diff 0.057
+
+=== 8. simulation: known truth (2 seasons x 16 teams, tau_u 1.5, sigma2 1e4, Poisson box counts, no leak) ===
+  lambda = 0.25 x true:
+   kind side     bucket  slope    se  beta_noise_var  expected_slope
+  prior    O    [0,500)  0.987 0.160             NaN             NaN
+  prior    O [500,1500)  0.987 0.052             NaN             NaN
+  prior    O [1500,inf)  0.962 0.029             NaN             NaN
+  prior    D    [0,500)  1.309 0.451             NaN             NaN
+  prior    D [500,1500)  0.965 0.103             NaN             NaN
+  prior    D [1500,inf)  1.017 0.106             NaN             NaN
+  prior    O        all  0.964 0.028           1.719           0.976
+  prior    D        all  1.014 0.104           1.718           0.836
+  prior  O+D        all  0.970   NaN           3.437           0.958
+  eblup    O    [0,500)  0.995 0.161             NaN             NaN
+  eblup    O [500,1500)  1.025 0.045             NaN             NaN
+  eblup    O [1500,inf)  0.949 0.026             NaN             NaN
+  eblup    D    [0,500)  0.829 0.356             NaN             NaN
+  eblup    D [500,1500)  0.786 0.092             NaN             NaN
+  eblup    D [1500,inf)  0.815 0.070             NaN             NaN
+  eblup    O        all  0.951 0.024             NaN             NaN
+  eblup    D        all  0.814 0.065             NaN             NaN
+  eblup  O+D        all  0.920   NaN             NaN             NaN
+joint_u    O    [0,500)  2.057 0.215             NaN             NaN
+joint_u    O [500,1500)  0.773 0.147             NaN             NaN
+joint_u    O [1500,inf)  0.730 0.018             NaN             NaN
+joint_u    D    [0,500) -1.518 1.293             NaN             NaN
+joint_u    D [500,1500)  0.626 0.264             NaN             NaN
+joint_u    D [1500,inf)  0.681 0.049             NaN             NaN
+joint_u    O        all  0.735 0.015             NaN             NaN
+joint_u    D        all  0.676 0.044             NaN             NaN
+joint_u  O+D        all  0.707   NaN             NaN             NaN
+  lambda = 1.0 x true:
+   kind side     bucket  slope    se  beta_noise_var  expected_slope
+  prior    O    [0,500)  0.975 0.160             NaN             NaN
+  prior    O [500,1500)  0.994 0.056             NaN             NaN
+  prior    O [1500,inf)  0.966 0.028             NaN             NaN
+  prior    D    [0,500)  1.294 0.429             NaN             NaN
+  prior    D [500,1500)  0.984 0.098             NaN             NaN
+  prior    D [1500,inf)  1.026 0.112             NaN             NaN
+  prior    O        all  0.968 0.027           0.960           0.986
+  prior    D        all  1.024 0.110           0.959           0.911
+  prior  O+D        all  0.975   NaN           1.919           0.977
+  eblup    O    [0,500)  0.971 0.186             NaN             NaN
+  eblup    O [500,1500)  1.073 0.045             NaN             NaN
+  eblup    O [1500,inf)  0.998 0.027             NaN             NaN
+  eblup    D    [0,500)  1.142 0.389             NaN             NaN
+  eblup    D [500,1500)  0.998 0.084             NaN             NaN
+  eblup    D [1500,inf)  0.971 0.093             NaN             NaN
+  eblup    O        all  1.001 0.026             NaN             NaN
+  eblup    D        all  0.973 0.090             NaN             NaN
+  eblup  O+D        all  0.995   NaN             NaN             NaN
+joint_u    O    [0,500)  6.729 0.990             NaN             NaN
+joint_u    O [500,1500)  2.061 0.477             NaN             NaN
+joint_u    O [1500,inf)  1.018 0.035             NaN             NaN
+joint_u    D    [0,500) -4.588 4.083             NaN             NaN
+joint_u    D [500,1500)  1.340 0.672             NaN             NaN
+joint_u    D [1500,inf)  1.008 0.082             NaN             NaN
+joint_u    O        all  1.036 0.035             NaN             NaN
+joint_u    D        all  1.016 0.078             NaN             NaN
+joint_u  O+D        all  1.024   NaN             NaN             NaN
+  lambda = 4.0 x true:
+   kind side     bucket   slope     se  beta_noise_var  expected_slope
+  prior    O    [0,500)   0.975  0.167             NaN             NaN
+  prior    O [500,1500)   1.011  0.058             NaN             NaN
+  prior    O [1500,inf)   0.976  0.027             NaN             NaN
+  prior    D    [0,500)   1.259  0.396             NaN             NaN
+  prior    D [500,1500)   0.991  0.092             NaN             NaN
+  prior    D [1500,inf)   1.013  0.116             NaN             NaN
+  prior    O        all   0.978  0.026           0.673           0.990
+  prior    D        all   1.012  0.113           0.673           0.939
+  prior  O+D        all   0.983    NaN           1.347           0.983
+  eblup    O    [0,500)   0.971  0.189             NaN             NaN
+  eblup    O [500,1500)   1.066  0.053             NaN             NaN
+  eblup    O [1500,inf)   1.016  0.027             NaN             NaN
+  eblup    D    [0,500)   1.238  0.372             NaN             NaN
+  eblup    D [500,1500)   1.053  0.090             NaN             NaN
+  eblup    D [1500,inf)   1.038  0.113             NaN             NaN
+  eblup    O        all   1.018  0.026             NaN             NaN
+  eblup    D        all   1.040  0.110             NaN             NaN
+  eblup  O+D        all   1.021    NaN             NaN             NaN
+joint_u    O    [0,500)  24.882  4.779             NaN             NaN
+joint_u    O [500,1500)   6.777  1.959             NaN             NaN
+joint_u    O [1500,inf)   1.556  0.086             NaN             NaN
+joint_u    D    [0,500) -16.172 15.125             NaN             NaN
+joint_u    D [500,1500)   3.798  2.064             NaN             NaN
+joint_u    D [1500,inf)   1.607  0.149             NaN             NaN
+joint_u    O        all   1.603  0.077             NaN             NaN
+joint_u    D        all   1.636  0.142             NaN             NaN
+joint_u  O+D        all   1.603    NaN             NaN             NaN
+  sim bootstrap/formula SE ratio: median 0.865, range [0.71, 1.05]
+
+=== 9. (post-run probe) joint prior/u slopes vs the plug-in lambda, real data 2012-14 (half-fit lambda 5939, ratio 0.75) ===
+ lam_plugin   u_O   u_D  u_OD  eblup_OD  prior_in_joint_OD  u_O_starters  u_D_starters
+      10313 1.304 1.276 1.280     0.997              0.931         1.301         1.228
+       5000 0.914 0.964 0.948     0.936              0.931         0.935         0.944
+       2500 0.665 0.760 0.729     0.857              0.935         0.699         0.759
+       1250 0.492 0.608 0.567     0.766              0.943         0.531         0.621
+        600 0.371 0.494 0.447     0.672              0.952         0.413         0.517

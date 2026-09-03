@@ -1,0 +1,26 @@
+pad_target: poss_conditional
+lam_beta: 7113.786608980127
+lam_ratio_beta: 0.6123724356957945
+lam_plugin: 23258.049332526516
+lam_ratio_plugin: 0.25
+windows:
+  2000-2002:
+    lam_beta: 9015.614312570586
+    ratio_beta: 0.5
+    how_beta: reml
+    lam_plugin: 23258.049332526516
+    ratio_plugin: 0.25
+    how_plugin: reml
+    sigma2: 11675.190309511747
+    n_rows: 188347.0
+    n_ps: 1320.0
+  2012-2014:
+    lam_beta: 5613.146055676366
+    ratio_beta: 0.75
+    how_beta: reml
+    lam_plugin: 23258.049332526516
+    ratio_plugin: 0.25
+    how_plugin: reml
+    sigma2: 12426.786784439026
+    n_rows: 182568.0
+    n_ps: 1429.0

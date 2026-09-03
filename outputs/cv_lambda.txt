@@ -1,0 +1,65 @@
+
+=== window 2000-2002 (RS rows, pad_target=poss_conditional) ===
+rows=188347 player-seasons=1320 games=3567
+beta (half-fits): best lambda per ratio
+ lam_ratio       lam  mean_mse  diff_vs_best  diff_se  in_1se_band  reml_neg2ll
+      0.25 14480.525  6639.057         0.538    0.237        False       11.866
+      0.33 11425.884  6638.774         0.254    0.207        False        5.553
+      0.50  9015.614  6638.523         0.003    0.097         True        0.000
+      0.75  7113.787  6638.520         0.000    0.000         True        0.577
+      1.00  5613.146  6638.632         0.112    0.055        False        3.951
+      1.50  4429.063  6639.080         0.560    0.149        False       16.187
+      2.00  3494.760  6639.607         1.087    0.223        False       31.114
+  pick: ratio 0.5, lambda 9016 (by reml); 1-SE band ratios [0.5, 0.75]  (36s)
+plug-in (ratings) fit: best lambda per ratio
+ lam_ratio       lam  mean_mse  diff_vs_best  diff_se  in_1se_band  reml_neg2ll
+      0.08 60000.000  3310.374         0.093    0.030        False        4.747
+      0.12 47343.107  3310.312         0.031    0.044         True        0.952
+      0.18 29475.948  3310.281         0.000    0.000         True        0.283
+      0.25 23258.049  3310.287         0.006    0.021         True        0.000
+      0.33 18351.805  3310.328         0.047    0.036        False        1.668
+      0.50 14480.525  3310.443         0.162    0.076        False        6.573
+      0.75 11425.884  3310.640         0.359    0.118        False       15.964
+      1.00  9015.614  3310.842         0.560    0.142        False       25.973
+  pick: ratio 0.25, lambda 23258 (by reml); 1-SE band ratios [0.12, 0.18, 0.25, 0.33]
+  sigma2 11675  tau2_O 0.502  tau2_D 2.008
+
+=== window 2012-2014 (RS rows, pad_target=poss_conditional) ===
+rows=182568 player-seasons=1429 games=3449
+beta (half-fits): best lambda per ratio
+ lam_ratio       lam  mean_mse  diff_vs_best  diff_se  in_1se_band  reml_neg2ll
+      0.25 14480.525  7076.471         1.150    0.617        False       18.514
+      0.33 11425.884  7076.020         0.699    0.499        False       10.548
+      0.50  9015.614  7075.524         0.203    0.245         True        2.871
+      0.75  7113.787  7075.321         0.000    0.000         True        1.019
+      1.00  5613.146  7075.327         0.007    0.148         True        2.070
+      1.50  4429.063  7075.671         0.350    0.389         True       11.642
+      2.00  4429.063  7076.154         0.833    0.600        False       24.130
+  pick: ratio 0.75, lambda 5613 (by reml); 1-SE band ratios [0.5, 0.75, 1.0, 1.5]  (40s)
+plug-in (ratings) fit: best lambda per ratio
+ lam_ratio       lam  mean_mse  diff_vs_best  diff_se  in_1se_band  reml_neg2ll
+      0.08 60000.000  3527.960         0.202    0.064        False        7.166
+      0.12 37356.164  3527.872         0.114    0.063        False        4.363
+      0.18 29475.948  3527.784         0.026    0.025        False        0.735
+      0.25 23258.049  3527.758         0.000    0.000         True        0.000
+      0.33 18351.805  3527.762         0.004    0.020         True        0.442
+      0.50 14480.525  3527.854         0.096    0.063        False        5.448
+      0.75  9015.614  3528.027         0.269    0.095        False       13.566
+      1.00  9015.614  3528.200         0.442    0.139        False       22.995
+  pick: ratio 0.25, lambda 23258 (by reml); 1-SE band ratios [0.25, 0.33]
+  sigma2 12427  tau2_O 0.534  tau2_D 2.137
+
+=== both windows ===
+           lam_beta ratio_beta how_beta lam_plugin ratio_plugin how_plugin     sigma2  n_rows  n_ps
+2000-2002  9015.614        0.5     reml  23258.049         0.25       reml   11675.19  188347  1320
+2012-2014  5613.146       0.75     reml  23258.049         0.25       reml  12426.787  182568  1429
+lambda ratio between windows: beta 1.61x, plug-in 1.00x
+windows agree within 2x
+
+written to outputs/lambda.yaml:
+pad_target: poss_conditional
+lam_beta: 7113.786608980127
+lam_ratio_beta: 0.6123724356957945
+lam_plugin: 23258.049332526516
+lam_ratio_plugin: 0.25
+

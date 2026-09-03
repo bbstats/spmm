@@ -1,0 +1,252 @@
+=== 1. window 2012-2014, RS rows ===
+ season  n_games  n_stints  stints_per_game  poss_per_team_game  valid_poss_frac  unresolved_subs_per_game  periods_starters_failed  points_match_frac  poss_abs_diff_per_game_vs_pbpstats  poss_within_2_frac  five_distinct_frac
+   2012      990     27547           27.825              92.531            0.999                     0.001                        4                1.0                               0.786               0.992                 1.0
+   2013     1229     34099           27.745              93.188            0.994                     0.006                       33                1.0                               0.764               0.989                 1.0
+   2014     1230     34875           28.354              95.100            1.000                     0.000                        3                1.0                               0.762               0.989                 1.0
+rows=182568  player-seasons=1429  games=3449  X=(182568, 2868)  half A rows=91105  half B rows=91463  (1s)
+
+=== 2. per-season padding k (possessions to half-weight), from odd/even split halves of all RS games ===
+      fg3m  fg3_miss  fg2m  fg2_miss    ftm  ft_miss   orb   drb   ast    tov    stl    blk     pf
+2012  94.0      50.0  86.0     108.0  166.0    239.0  83.0  99.0  43.0  322.0  560.0  100.0  189.0
+2013  77.0      40.0  93.0     102.0  154.0    268.0  77.0  93.0  47.0  344.0  520.0  103.0  202.0
+2014  89.0      48.0  82.0      92.0  155.0    251.0  86.0  75.0  44.0  366.0  505.0  133.0  231.0
+
+sigma2_within (per-100 rate noise per possession):
+       fg3m  fg3_miss   fg2m  fg2_miss    ftm  ft_miss    orb    drb    ast    tov    stl    blk     pf
+2012  144.6     218.1  538.5     680.1  578.0    149.3  258.2  658.5  420.8  300.0  164.3  106.4  366.4
+2013  137.7     190.6  592.5     617.5  519.7    155.1  244.8  697.9  436.2  280.8  167.6  105.9  391.2
+2014  146.3     205.0  504.5     551.1  576.6    146.2  251.4  546.3  378.8  306.8  157.9  106.6  414.1
+tau2_between (between-player variance of true rates):
+       fg3m  fg3_miss   fg2m  fg2_miss    ftm  ft_miss    orb    drb    ast    tov    stl    blk     pf
+2012  1.535     4.349  6.232     6.305  3.481    0.626  3.096  6.648  9.833  0.933  0.293  1.068  1.941
+2013  1.799     4.804  6.400     6.042  3.380    0.578  3.181  7.511  9.256  0.817  0.323  1.026  1.933
+2014  1.648     4.259  6.144     5.978  3.725    0.584  2.909  7.260  8.579  0.838  0.313  0.798  1.795
+league rates per 100 possessions:
+      fg3m  fg3_miss  fg2m  fg2_miss   ftm  ft_miss   orb   drb   ast   tov   stl   blk    pf
+2012  1.39      2.59  6.50      7.13  3.66     1.20  2.46  6.66  4.54  3.02  1.66  1.10  4.23
+2013  1.55      2.76  6.47      6.93  3.61     1.18  2.41  6.69  4.78  3.01  1.69  1.11  4.29
+2014  1.63      2.90  6.30      6.63  3.75     1.21  2.30  6.70  4.63  2.96  1.62  0.99  4.35
+k from the covariate half of fit A (games of half B):
+       fg3m  fg3_miss  fg2m  fg2_miss    ftm  ft_miss   orb   drb   ast    tov    stl    blk     pf
+2012   71.0      43.0  79.0     101.0  135.0    203.0  85.0  97.0  45.0  321.0  515.0  121.0  206.0
+2013   74.0      44.0  87.0      96.0  195.0    290.0  89.0  82.0  53.0  386.0  487.0  121.0  215.0
+2014  101.0      44.0  81.0     113.0  142.0    260.0  82.0  82.0  54.0  349.0  477.0  173.0  263.0
+k from the covariate half of fit B (games of half A):
+      fg3m  fg3_miss  fg2m  fg2_miss    ftm  ft_miss   orb   drb   ast    tov    stl    blk     pf
+2012  94.0      42.0  91.0      97.0  167.0    242.0  83.0  93.0  40.0  313.0  525.0  101.0  215.0
+2013  78.0      43.0  81.0     118.0  171.0    274.0  98.0  91.0  54.0  356.0  552.0  111.0  187.0
+2014  80.0      53.0  98.0      89.0  131.0    251.0  86.0  82.0  57.0  314.0  528.0  109.0  210.0
+
+=== 3. lam_ratio outer grid x lambda path on each half-fit (RS rows, GroupKFold(5) by game) ===
+  ratio 0.5: 28s
+  ratio 0.75: 59s
+  ratio 1.0: 86s
+  ratio 1.5: 101s
+  ratio 2.0: 128s
+ lam_ratio  lam_cv_A  lam_reml_A  lam_used_A  min_mse_A  reml_min_A  lam_cv_B  lam_reml_B  lam_used_B  min_mse_B  reml_min_B  mse_sum  reml_sum  mse_sum_minus_best  reml_sum_minus_best
+      0.50  8270.371    8270.371    8270.371   3526.638  859467.378  8270.371    8270.371    8270.371   3550.779  862991.448 7077.417 1.722e+06               0.238                2.695
+      0.75  6632.065    5318.296    5318.296   3526.518  859465.882  6632.065    6632.065    6632.065   3550.661  862990.249 7077.179 1.722e+06               0.000                0.000
+      1.00  5318.296    5318.296    5318.296   3526.504  859466.564  5318.296    5318.296    5318.296   3550.688  862991.070 7077.192 1.722e+06               0.014                1.502
+      1.50  4264.776    4264.776    4264.776   3526.657  859471.325  5318.296    4264.776    4264.776   3550.856  862995.741 7077.513 1.722e+06               0.334               10.935
+      2.00  3419.952    3419.952    3419.952   3526.872  859477.387  4264.776    4264.776    4264.776   3551.043  863001.209 7077.915 1.722e+06               0.736               22.464
+lam_ratio: CV 0.75, REML 0.75 -> using 0.75
+half A: lambda: CV argmin 6632, REML 5318, CV 1-SE band [4265, 6632] -> using 5318 (reml)
+      lam  mean_mse  diff_vs_best  diff_se  in_1se_band  reml_neg2ll
+  100.000  3600.628        74.111    5.177        False     2693.938
+  124.703  3593.239        66.722    4.936        False     2331.806
+  155.508  3585.860        59.342    4.667        False     1997.038
+  193.923  3578.594        52.076    4.375        False     1690.640
+  241.827  3571.551        45.033    4.065        False     1413.263
+  301.565  3564.841        38.323    3.744        False     1165.134
+  376.060  3558.565        32.047    3.415        False      946.015
+  468.958  3552.808        26.290    3.085        False      755.183
+  584.804  3547.635        21.117    2.758        False      591.446
+  729.266  3543.085        16.568    2.436        False      453.194
+  909.416  3539.173        12.655    2.125        False      338.470
+ 1134.067  3535.886         9.368    1.826        False      245.081
+ 1414.214  3533.192         6.674    1.541        False      170.698
+ 1763.564  3531.044         4.526    1.271        False      112.972
+ 2199.214  3529.386         2.868    1.018        False       69.625
+ 2742.482  3528.159         1.642    0.782        False       38.517
+ 3419.952  3527.308         0.791    0.562        False       17.686
+ 4264.776  3526.781         0.263    0.358         True        5.372
+ 5318.296  3526.531         0.013    0.171         True        0.000
+ 6632.065  3526.518         0.000    0.000         True        0.168
+ 8270.371  3526.702         0.185    0.155        False        4.622
+10313.385  3527.047         0.530    0.295        False       12.243
+12861.082  3527.515         0.998    0.419        False       22.034
+16038.131  3528.069         1.551    0.529        False       33.128
+20000.000  3528.673         2.155    0.625        False       44.791
+  theta at the median starter (d = 1910): 0.142
+  MixedModelRAPM: n=91105  p_fixed=33  n_z=2858  sigma2=12419.9  edf=435.0
+    dropped all-zero fixed columns: ['is_po', 'po_home']
+half B: lambda: CV argmin 6632, REML 6632, CV 1-SE band [5318, 8270] -> using 6632 (reml)
+      lam  mean_mse  diff_vs_best  diff_se  in_1se_band  reml_neg2ll
+  100.000  3632.157        81.495    4.795        False     2737.869
+  124.703  3624.362        73.701    4.582        False     2370.952
+  155.508  3616.513        65.852    4.343        False     2031.380
+  193.923  3608.723        58.062    4.080        False     1720.252
+  241.827  3601.117        50.456    3.795        False     1438.310
+  301.565  3593.818        43.157    3.492        False     1185.881
+  376.060  3586.944        36.283    3.176        False      962.817
+  468.958  3580.598        29.937    2.853        False      768.480
+  584.804  3574.859        24.198    2.529        False      601.739
+  729.266  3569.781        19.120    2.212        False      461.017
+  909.416  3565.388        14.727    1.905        False      344.357
+ 1134.067  3561.676        11.015    1.614        False      249.530
+ 1414.214  3558.616         7.954    1.342        False      174.142
+ 1763.564  3556.160         5.499    1.089        False      115.751
+ 2199.214  3554.250         3.589    0.857        False       71.968
+ 2742.482  3552.820         2.159    0.646        False       40.538
+ 3419.952  3551.806         1.144    0.455        False       19.389
+ 4264.776  3551.145         0.484    0.285        False        6.655
+ 5318.296  3550.781         0.119    0.133         True        0.679
+ 6632.065  3550.661         0.000    0.000         True        0.000
+ 8270.371  3550.739         0.078    0.116         True        3.337
+10313.385  3550.971         0.310    0.216        False        9.573
+12861.082  3551.316         0.654    0.301        False       17.745
+16038.131  3551.736         1.075    0.372        False       27.041
+20000.000  3552.200         1.539    0.431        False       36.798
+  theta at the median starter (d = 1930): 0.120
+  MixedModelRAPM: n=91463  p_fixed=33  n_z=2858  sigma2=12448.5  edf=378.5
+    dropped all-zero fixed columns: ['is_po', 'po_home']
+
+=== 4. crossfit beta (per-100 units; D flipped so positive = good on both sides) ===
+side  feature   beta    se  beta_A  beta_B      z expected sign_ok
+   O     fg3m  1.035 0.170   1.207   0.863  6.094        +      ok
+   O fg3_miss -0.015 0.106  -0.065   0.034 -0.145        -      ok
+   O     fg2m  0.605 0.072   0.586   0.624  8.390        +      ok
+   O fg2_miss -0.497 0.060  -0.457  -0.536 -8.269        -      ok
+   O      ftm  0.626 0.067   0.692   0.561  9.316        +      ok
+   O  ft_miss -0.521 0.161  -0.779  -0.263 -3.238        -      ok
+   O      orb  0.422 0.094   0.559   0.285  4.483        +      ok
+   O      drb -0.015 0.058  -0.003  -0.028 -0.267                 
+   O      ast  0.454 0.053   0.444   0.465  8.619        +      ok
+   O      tov -0.756 0.149  -0.635  -0.878 -5.076        -      ok
+   O      stl  0.765 0.190   1.275   0.255  4.033                 
+   O      blk -0.010 0.132  -0.113   0.093 -0.074                 
+   O       pf -0.264 0.085  -0.226  -0.303 -3.122                 
+   D     fg3m -0.193 0.176  -0.349  -0.037 -1.096                 
+   D fg3_miss -0.182 0.109  -0.095  -0.269 -1.662                 
+   D     fg2m -0.028 0.075   0.093  -0.149 -0.374                 
+   D fg2_miss -0.229 0.063  -0.289  -0.168 -3.634                 
+   D      ftm  0.184 0.070   0.234   0.135  2.621                 
+   D  ft_miss -0.356 0.169  -0.578  -0.134 -2.110                 
+   D      orb -0.229 0.098  -0.310  -0.148 -2.342                 
+   D      drb  0.388 0.059   0.383   0.394  6.571        +      ok
+   D      ast  0.114 0.054   0.028   0.199  2.095                 
+   D      tov -0.484 0.156  -0.411  -0.557 -3.107                 
+   D      stl  1.412 0.198   1.556   1.267  7.121        +      ok
+   D      blk  0.873 0.136   0.875   0.871  6.407        +      ok
+   D       pf -0.049 0.088   0.053  -0.151 -0.564                 
+sign check failures: []
+
+=== 5. plug-in u fit (beta fixed, all RS rows, full-season rates, own lambda path) ===
+21s
+MixedModelRAPM: n=182568  p_fixed=7  n_z=2858  sigma2=12426.1  edf=422.0
+  dropped all-zero fixed columns: ['is_po', 'po_home']
+  beta plugged in (beta_fixed); box columns entered as an offset
+lambda: CV argmin 10313, REML 10313, CV 1-SE band [10313, 10313] -> using 10313 (reml)
+theta at the median starter (d = 3884): 0.148
+F coefficients:
+       name   gamma    se
+       home   1.993 0.141
+   int_2012 104.891 0.524
+   int_2013 105.123 0.513
+   int_2014 105.192 0.512
+      is_po   0.000   NaN
+    po_home   0.000   NaN
+      is_gt   2.142 0.660
+     margin  -0.467 0.027
+margin_frem   0.330 0.062
+
+=== 6. full-season and LOO beta at lambda = 10313 (all RS rows) beside crossfit ===
+(crossfit here refits at the plug-in lambda so the three share one lambda)
+side  feature  beta_crossfit  se_crossfit  beta_full  beta_loo  full_minus_cf_in_se  loo_minus_cf_in_se  mechanical
+   O     fg3m          1.025        0.160      2.236     0.873                7.572              -0.950        3.00
+   O fg3_miss         -0.009        0.100     -0.668     0.086               -6.578               0.939       -0.75
+   O     fg2m          0.611        0.068      0.911     0.539                4.433              -1.073        2.00
+   O fg2_miss         -0.508        0.056     -0.701    -0.457               -3.476               0.916       -0.75
+   O      ftm          0.635        0.062      0.753     0.668                1.898               0.521        1.00
+   O  ft_miss         -0.526        0.148     -0.503    -0.555                0.155              -0.194        0.00
+   O      orb          0.423        0.088      0.648     0.514                2.554               1.035        0.75
+   O      drb         -0.013        0.055     -0.058    -0.021               -0.821              -0.139        0.00
+   O      ast          0.441        0.050      0.674     0.458                4.663               0.333        0.00
+   O      tov         -0.728        0.138     -1.429    -0.750               -5.082              -0.164       -1.00
+   O      stl          0.760        0.176      0.547     0.720               -1.208              -0.227        0.00
+   O      blk          0.015        0.124     -0.079     0.022               -0.758               0.055        0.00
+   O       pf         -0.260        0.079      0.008    -0.273                3.369              -0.172        0.00
+   D     fg3m         -0.145        0.164     -0.011    -0.029                0.818               0.709         NaN
+   D fg3_miss         -0.209        0.103     -0.273    -0.278               -0.623              -0.666         NaN
+   D     fg2m         -0.030        0.070     -0.080    -0.027               -0.720               0.039         NaN
+   D fg2_miss         -0.233        0.058     -0.190    -0.221                0.743               0.202         NaN
+   D      ftm          0.183        0.064      0.252     0.249                1.067               1.011         NaN
+   D  ft_miss         -0.390        0.154     -0.382    -0.282                0.049               0.699         NaN
+   D      orb         -0.220        0.091     -0.356    -0.228               -1.491              -0.082         NaN
+   D      drb          0.417        0.056      0.626     0.381                3.737              -0.648         NaN
+   D      ast          0.122        0.051      0.117     0.144               -0.103               0.427         NaN
+   D      tov         -0.473        0.143     -0.571    -0.606               -0.685              -0.927         NaN
+   D      stl          1.399        0.183      1.685     1.186                1.566              -1.167         NaN
+   D      blk          0.850        0.127      0.788     0.741               -0.487              -0.857         NaN
+   D       pf         -0.052        0.082     -0.006     0.053                0.566               1.281         NaN
+
+=== 7. binned margin (7 bins x 2 halves) vs linear rubber band ===
+side  feature   beta    se  beta_binned  se_binned  diff_in_se
+   O     fg3m  1.035 0.170        1.036      0.170   6.058e-03
+   O fg3_miss -0.015 0.106       -0.016      0.106  -8.627e-03
+   O     fg2m  0.605 0.072        0.612      0.072   9.579e-02
+   O fg2_miss -0.497 0.060       -0.494      0.060   5.255e-02
+   O      ftm  0.626 0.067        0.634      0.067   1.164e-01
+   O  ft_miss -0.521 0.161       -0.521      0.161  -2.754e-03
+   O      orb  0.422 0.094        0.422      0.094   3.263e-03
+   O      drb -0.015 0.058       -0.008      0.058   1.247e-01
+   O      ast  0.454 0.053        0.465      0.053   2.098e-01
+   O      tov -0.756 0.149       -0.775      0.149  -1.262e-01
+   O      stl  0.765 0.190        0.779      0.190   7.589e-02
+   O      blk -0.010 0.132       -0.010      0.132   8.968e-04
+   O       pf -0.264 0.085       -0.280      0.085  -1.802e-01
+   D     fg3m -0.193 0.176       -0.217      0.176  -1.351e-01
+   D fg3_miss -0.182 0.109       -0.175      0.109   6.451e-02
+   D     fg2m -0.028 0.075       -0.037      0.075  -1.254e-01
+   D fg2_miss -0.229 0.063       -0.228      0.063   1.251e-02
+   D      ftm  0.184 0.070        0.180      0.070  -5.961e-02
+   D  ft_miss -0.356 0.169       -0.339      0.169   9.695e-02
+   D      orb -0.229 0.098       -0.232      0.098  -3.063e-02
+   D      drb  0.388 0.059        0.377      0.059  -1.927e-01
+   D      ast  0.114 0.054        0.106      0.054  -1.397e-01
+   D      tov -0.484 0.156       -0.476      0.156   5.650e-02
+   D      stl  1.412 0.198        1.397      0.198  -7.182e-02
+   D      blk  0.873 0.136        0.869      0.136  -2.449e-02
+   D       pf -0.049 0.088       -0.035      0.088   1.594e-01
+max |diff| in SE units: 0.21
+margin-bin coefficients (half A / half B), reference = bin 3 (roughly tied), first half:
+    name  gamma_A  se_A  gamma_B  se_B
+mbin0_t0     6.65  1.88     7.71  1.84
+mbin1_t0     5.16  1.03     5.66  1.05
+mbin2_t0     3.00  0.86     3.06  0.85
+mbin4_t0     0.46  0.83     0.20  0.83
+mbin5_t0    -2.48  0.97    -2.92  0.99
+mbin6_t0    -2.92  1.69    -5.00  1.66
+mbin0_t1     9.87  1.09     8.42  1.09
+mbin1_t1     4.71  0.87     4.72  0.89
+mbin2_t1     2.87  0.85     2.02  0.85
+mbin3_t1    -1.38  0.76    -1.55  0.74
+mbin4_t1    -1.78  0.84    -2.38  0.84
+mbin5_t1    -3.35  0.84    -4.19  0.86
+mbin6_t1    -5.45  1.04    -5.29  1.04
+linear rubber band in the base fits (half A / half B): margin, margin_frem = [np.float64(-0.477), np.float64(0.35)] [np.float64(-0.461), np.float64(0.305)]
+
+=== 8. OOS on the same folds: zero-prior RAPM vs crossfit beta + plug-in u ===
+zero-prior lambda: lambda: CV argmin 2742, REML 2742, CV 1-SE band [2199, 2742] -> using 2742 (reml)
+Traceback (most recent call last):
+  File "A:\code\spmm\scripts\03_checkpoint3.py", line 178, in <module>
+    oc = oos_compare(wd, lam=lam_plug, lam_ratio=ratio, n_folds=cfg["cv"]["n_folds"], mode="crossfit", lam_zero=lam_zero)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: oos_compare() got an unexpected keyword argument 'lam_zero'
+ fold  zero_prior       joint      diff
+    0 3558.155233 3554.632991 -3.522241
+    1 3549.039462 3543.597527 -5.441935
+    2 3564.190077 3554.759479 -9.430597
+    3 3541.870395 3534.760769 -7.109626
+    4 3491.423255 3488.478440 -2.944816
+mean diff -5.69  se 1.19  joint wins 5/5 folds  (10s)
