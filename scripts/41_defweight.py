@@ -114,14 +114,22 @@ for h in range(FIRST, LAST + 1):
         contrib = wd.X[:, :m] @ r["o"].to_numpy() + wd.X[:, m:2 * m] @ r["d"].to_numpy()
         cc = np.linalg.solve((A * w[:, None]).T @ A, (A * w[:, None]).T @ (y - contrib))
         pred = A @ cc + contrib
+        poss = wd.rows["poss"].to_numpy()
+        gg = pd.DataFrame({"g": wd.rows["game_idx"].to_numpy(), "hh": wd.rows["is_home_off"].to_numpy(),
+                           "poss": poss, "act": y * poss / 100.0, "prd": pred * poss / 100.0}
+                          ).groupby(["g", "hh"]).sum()
         rows.append(dict(held_out=h, c_def=c, mse=float(np.average((y - pred) ** 2, weights=w)),
-                         n=float(w.sum()), sd_def=float(r["d"].std())))
+                         n=float(w.sum()), sd_def=float(r["d"].std()),
+                         tg=float(np.average(((gg.act - gg.prd) / gg.poss * 100) ** 2, weights=gg.poss)),
+                         tg_n=float(gg.poss.sum())))
     print(f"  {h} ({time.time() - t0:.0f}s)", flush=True)
 
 D = pd.DataFrame(rows)
 D.to_parquet(OUT / "defweight.parquet", index=False)
 g = D.groupby("c_def").apply(lambda d: pd.Series({
-    "mse": float((d.mse * d.n).sum() / d.n.sum()), "sd_def": d.sd_def.mean()}), include_groups=False)
+    "mse": float((d.mse * d.n).sum() / d.n.sum()),
+    "team_game": float((d.tg * d.tg_n).sum() / d.tg_n.sum()),
+    "sd_def": d.sd_def.mean()}), include_groups=False)
 print("\n=== held-out MSE by defensive prior weight (0 = shipped hybrid, 1 = prior-informed RAPM)")
 print(g.to_string())
 best = g.mse.idxmin()
