@@ -66,6 +66,25 @@ LAMS = ([float(x) for x in lam_arg[0].split("=")[1].split(",")] if lam_arg
 RATIO = float(cfg["lam_ratio_plugin"])
 
 panel = pd.read_parquet(OUT / "xrapm_panel.parquet")
+coefs = pd.read_parquet(OUT / "coefs.parquet")
+base = coefs[coefs.run == "base"]
+
+
+def team_beta(lab):
+    """The team-priced beta (stint margin on LINEUP SUMS), LEAVE-ONE-WINDOW-OUT.
+
+    The published per-window beta was fit on that window, which contains the training season AND
+    both held-out seasons -- using it directly would let this method see the answer while the
+    hybrid's beta (windows.hybrid_beta) is already excluded from its own window.  Averaging the
+    other windows' betas keeps the two comparable.  The coefficients are near-flat across eras, so
+    this costs almost nothing in accuracy.
+    """
+    d = base[base.window != lab]
+    o = d[d.side == "O"].groupby("feature")["beta"].mean().reindex(FE).to_numpy()
+    dd = d[d.side == "D"].groupby("feature")["beta"].mean().reindex(FE).to_numpy()
+    return np.concatenate([o, -dd])          # defense is stored flipped; the model wants it raw
+
+
 # which 3-season window a season belongs to, so the leave-one-window-out player-priced beta can be
 # reused for a single-season fit without ever being fit on that season
 WIN_OF = {s: window_label(list(range(w[0], w[1] + 1)))
@@ -73,9 +92,10 @@ WIN_OF = {s: window_label(list(range(w[0], w[1] + 1)))
 
 # name -> (beta for this season, target).  beta is the raw 26-vector the model wants.
 METHODS = {
-    "rapm  (no prior)": lambda s: (np.zeros(2 * nf), "pts"),
-    "hybrid": lambda s: (hybrid_beta(panel, FE, WIN_OF[s]), "pts"),
-    "hybrid + xPTS(ft)": lambda s: (hybrid_beta(panel, FE, WIN_OF[s]), "xpts_ft"),
+    "1 RAPM, no prior": lambda s: (np.zeros(2 * nf), "pts"),
+    "2 PI-RAPM, team-priced": lambda s: (team_beta(WIN_OF[s]), "pts"),
+    "3 hybrid": lambda s: (hybrid_beta(panel, FE, WIN_OF[s]), "pts"),
+    "4 hybrid + xPTS(ft)": lambda s: (hybrid_beta(panel, FE, WIN_OF[s]), "xpts_ft"),
 }
 
 _cache: dict = {}
@@ -109,7 +129,9 @@ def score(rat, season):
     m = wd.spec.n_ps
     ids = wd.spec.ps_table["player_id"].to_numpy()
     r = pd.DataFrame({"player_id": ids}).merge(rat, on="player_id", how="left").fillna(0.0)
-    contrib = wd.X[:, :m] @ r["o"].to_numpy() + wd.X[:, m:2 * m] @ r["d"].to_numpy()
+    c_off = wd.X[:, :m] @ r["o"].to_numpy()
+    c_def = wd.X[:, m:2 * m] @ r["d"].to_numpy()
+    contrib = c_off + c_def
     home = np.asarray(wd.X[:, wd.spec.f_col("home")].todense()).ravel()
     y, w = wd.y, wd.w
 
@@ -130,6 +152,9 @@ def score(rat, season):
     A = np.column_stack([np.ones(len(y)), home, contrib])
     coef = np.linalg.solve((A * w[:, None]).T @ A, (A * w[:, None]).T @ y)
     calib = wmse(A @ coef)
+    # separately per side: a single scalar hides offense and defense being wrong by different amounts
+    A2 = np.column_stack([np.ones(len(y)), home, c_off, c_def])
+    c2 = np.linalg.solve((A2 * w[:, None]).T @ A2, (A2 * w[:, None]).T @ y)
 
     # team-game: sum predicted and actual points over each team's rows in a game, which cancels most
     # of the per-possession binomial noise
@@ -140,7 +165,8 @@ def score(rat, season):
     tg = float(np.average(((g.act - g.prd) / g.poss * 100) ** 2, weights=g.poss))
     tg_base = float(np.average(((g.act - g.b) / g.poss * 100) ** 2, weights=g.poss))
     return dict(sse=native * w.sum(), n=w.sum(), mse=native, base=base, calib=calib,
-                scale=float(coef[2]), tg=tg, tg_base=tg_base, tg_n=float(g.poss.sum()))
+                scale=float(coef[2]), scale_off=float(c2[2]), scale_def=float(c2[3]),
+                calib_side=wmse(A2 @ c2), tg=tg, tg_base=tg_base, tg_n=float(g.poss.sum()))
 
 
 rows = []
@@ -169,6 +195,8 @@ def summarise(d):
         "vs_no_ratings": 1 - float((d.mse * d.n).sum() / (d.base * d.n).sum()),
         "calibrated_mse": float((d.calib * d.n).sum() / n),
         "best_scale": float((d.scale * d.n).sum() / n),
+        "scale_off": float((d.scale_off * d.n).sum() / n),
+        "scale_def": float((d.scale_def * d.n).sum() / n),
         "team_game_mse": float((d.tg * d.tg_n).sum() / d.tg_n.sum()),
         "tg_vs_no_ratings": 1 - float((d.tg * d.tg_n).sum() / (d.tg_base * d.tg_n).sum()),
     })
