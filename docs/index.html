@@ -5,22 +5,22 @@
 <meta name="description" content="How the mapping from box score to on-court impact changed from 1996-97 to 2025-26, estimated by mixed-model RAPM.">
 <style>
   :root { color-scheme: light; --surface:#fcfcfb; --text:#0b0b0b;
-           --text2:#52514e; --grid:#e6e5e1; --o:#2a78d6; --d:#eb6834; }
+           --text2:#52514e; --grid:#e6e5e1; --t:#2a78d6; --o:#eb6834; --d:#1baf7a; }
   :root[data-theme="dark"] { color-scheme: dark; --surface:#1a1a19; --text:#ffffff;
-           --text2:#c3c2b7; --grid:#333331; --o:#3987e5; --d:#d95926; }
+           --text2:#c3c2b7; --grid:#333331; --t:#3987e5; --o:#d95926; --d:#199e70; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { color-scheme: dark;
            --surface:#1a1a19; --text:#ffffff; --text2:#c3c2b7;
-           --grid:#333331; --o:#3987e5; --d:#d95926; } }
+           --grid:#333331; --t:#3987e5; --o:#d95926; --d:#199e70; } }
   body { margin:0; background:var(--surface); color:var(--text); font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
           -webkit-font-smoothing:antialiased; line-height:1.55; }
   .wrap { max-width:900px; margin:0 auto; padding:40px 24px 72px; }
   h1 { font-size:30px; line-height:1.2; margin:0 0 10px; font-weight:600; letter-spacing:-0.015em; }
   h2 { font-size:19px; margin:44px 0 6px; font-weight:600; letter-spacing:-0.01em; }
   p { color:var(--text2); font-size:15.5px; max-width:70ch; margin:0 0 12px; }
-  a { color:var(--o); }
+  a { color:var(--t); }
   .cta { display:inline-block; margin:18px 0 6px; padding:11px 18px; border:1px solid var(--grid);
           border-radius:9px; text-decoration:none; color:var(--text); font-size:15px; font-weight:500; }
-  .cta:hover { border-color:var(--o); }
+  .cta:hover { border-color:var(--t); }
   figure { margin:26px 0 8px; }
   img { width:100%; height:auto; border-radius:8px; }
   figcaption { color:var(--text2); font-size:13.5px; margin-top:8px; }

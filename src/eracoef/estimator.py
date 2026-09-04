@@ -331,9 +331,14 @@ class MixedModelRAPM(RegressorMixin, BaseEstimator):
         if self.beta_fixed is not None and len(np.asarray(self.beta_fixed)) == 4 * nf:
             self.delta_ = np.asarray(self.beta_fixed, dtype=float)[2 * nf:]
             self.delta_se_ = np.full(2 * nf, np.nan)
+            self.cov_delta_ = np.full((2 * nf, 2 * nf), np.nan)
+            self.cov_beta_delta_ = np.full((2 * nf, 2 * nf), np.nan)
         else:
             self.delta_ = sol.theta_f[ds]
             self.delta_se_ = se[ds]
+            self.cov_delta_ = self.cov_theta_[ds, ds]
+            self.cov_beta_delta_ = (self.cov_theta_[layout.box_slice, ds] if self.beta_fixed is None
+                                    else np.zeros((2 * nf, layout.n_delta)))
         self.u_ = sol.u
         self.sigma2_ = sol.sigma2
         self.edf_ = sol.edf

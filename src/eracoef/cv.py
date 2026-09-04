@@ -134,6 +134,8 @@ class CrossfitResult:
     spec: object
     fits: dict = field(default_factory=dict)      # "A" -> Pipeline, "B" -> Pipeline
     lam: dict = field(default_factory=dict)
+    cov_delta_: np.ndarray = None
+    cov_beta_delta_: np.ndarray = None
 
     def coef_table(self, flip_defense: bool = True) -> pd.DataFrame:
         nf = self.n_feat_
@@ -196,10 +198,13 @@ def crossfit_beta(wd: WindowData, lam=None, lams=None, cv=5, lam_ratio=1.0, lam_
     se = np.sqrt(np.maximum(np.diag(cov), 0.0))
     if len(a.delta_):
         delta = 0.5 * (a.delta_ + b.delta_)
-        delta_se = 0.5 * np.sqrt(a.delta_se_ ** 2 + b.delta_se_ ** 2)
+        cov_d = 0.25 * (a.cov_delta_ + b.cov_delta_)
+        cov_bd = 0.25 * (a.cov_beta_delta_ + b.cov_beta_delta_)
+        delta_se = np.sqrt(np.maximum(np.diag(cov_d), 0.0))
     else:
-        delta, delta_se = np.zeros(0), np.zeros(0)
-    return CrossfitResult(beta, se, cov, delta, delta_se, a.n_feat_, wd.spec, fits, lam_used)
+        delta, delta_se, cov_d, cov_bd = np.zeros(0), np.zeros(0), None, None
+    return CrossfitResult(beta, se, cov, delta, delta_se, a.n_feat_, wd.spec, fits, lam_used,
+                          cov_delta_=cov_d, cov_beta_delta_=cov_bd)
 
 
 def plugin_fit(wd: WindowData, beta, lam=None, lams=None, cv=5, lam_ratio=1.0, lam_buckets=None, lam_delta=None,

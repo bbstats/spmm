@@ -34,16 +34,35 @@ GRID = [float(x) for x in cfg["lam_delta_grid"]]
 THIRDS = [(1997, 2006), (2007, 2016), (2017, 2026)]
 
 
-def delta_rows(beta, se, delta, delta_se, label, pool, n_po_rows):
+def delta_rows(beta, se, delta, delta_se, label, pool, n_po_rows, cov_beta=None, cov_delta=None,
+               cov_bd=None):
+    """One row per side (O, D flipped, and Total = O + D) and feature.
+
+    Total is beta_O - beta_D_raw, so its variance carries the cross-term; the playoff coefficient
+    beta + delta likewise carries Cov(beta, delta), which is negative (playoff rows feed both).
+    """
     nf = len(FEATURES)
     r = []
     for side, off in (("O", 0), ("D", nf)):
         s = -1.0 if side == "D" else 1.0
         for j, f in enumerate(FEATURES):
-            r.append(dict(pool=pool, window=label, side=side, feature=f, beta=s * beta[off + j], se=se[off + j],
-                          delta=s * delta[off + j], delta_se=delta_se[off + j],
+            vb, vd = se[off + j] ** 2, delta_se[off + j] ** 2
+            cbd = cov_bd[off + j, off + j] if cov_bd is not None else 0.0
+            r.append(dict(pool=pool, window=label, side=side, feature=f, beta=s * beta[off + j],
+                          se=se[off + j], delta=s * delta[off + j], delta_se=delta_se[off + j],
                           po_beta=s * (beta[off + j] + delta[off + j]),
-                          po_se=np.sqrt(se[off + j] ** 2 + delta_se[off + j] ** 2), n_po_rows=n_po_rows))
+                          po_se=float(np.sqrt(max(vb + vd + 2 * cbd, 0.0))), n_po_rows=n_po_rows))
+    if cov_beta is not None and cov_delta is not None:
+        for j, f in enumerate(FEATURES):
+            c = np.zeros(2 * nf)
+            c[j], c[nf + j] = 1.0, -1.0
+            vb, vd = float(c @ cov_beta @ c), float(c @ cov_delta @ c)
+            cbd = float(c @ cov_bd @ c) if cov_bd is not None else 0.0
+            r.append(dict(pool=pool, window=label, side="Total", feature=f,
+                          beta=beta[j] - beta[nf + j], se=float(np.sqrt(max(vb, 0.0))),
+                          delta=delta[j] - delta[nf + j], delta_se=float(np.sqrt(max(vd, 0.0))),
+                          po_beta=(beta[j] - beta[nf + j]) + (delta[j] - delta[nf + j]),
+                          po_se=float(np.sqrt(max(vb + vd + 2 * cbd, 0.0))), n_po_rows=n_po_rows))
     return pd.DataFrame(r)
 
 
@@ -98,10 +117,14 @@ def fit_delta(wd, lam_deltas, label, pool):
         beta_se = 0.5 * np.sqrt(a.beta_se_ ** 2 + b.beta_se_ ** 2)
         delta = 0.5 * (a.delta_ + b.delta_)
         delta_se = 0.5 * np.sqrt(a.delta_se_ ** 2 + b.delta_se_ ** 2)
-        r = delta_rows(beta, beta_se, delta, delta_se, label, pool, n_po)
+        cov_b = 0.25 * (a.cov_beta_ + b.cov_beta_)
+        cov_d = 0.25 * (a.cov_delta_ + b.cov_delta_)
+        cov_bd = 0.25 * (a.cov_beta_delta_ + b.cov_beta_delta_)
+        r = delta_rows(beta, beta_se, delta, delta_se, label, pool, n_po, cov_b, cov_d, cov_bd)
         r["lam_delta"] = ld
         out.append(r)
-        fits[ld] = dict(beta=beta, beta_se=beta_se, delta=delta, delta_se=delta_se)
+        fits[ld] = dict(beta=beta, beta_se=beta_se, delta=delta, delta_se=delta_se,
+                        cov_beta=cov_b, cov_delta=cov_d, cov_bd=cov_bd)
     return fits, pd.concat(out, ignore_index=True)
 
 
@@ -156,7 +179,16 @@ wb = 1.0 / SB ** 2
 beta_pool = (wb * B).sum(0) / wb.sum(0)
 beta_se_pool = np.sqrt(1.0 / wb.sum(0))
 n_po_all = sum(v["n_po"] for v in third_fits.values())
-pooled = delta_rows(beta_pool, beta_se_pool, delta_pool, delta_se_pool, lab, "era", n_po_all)
+# inverse-variance pooling of independent thirds: precisions add, so the covariances combine as
+# (sum of inverses)^-1 for each block
+def _pool_cov(key):
+    Ps = [np.linalg.pinv(third_fits[f"{a}-{b}"]["fits"][LIGHT][key]) for a, b in THIRDS]
+    return np.linalg.pinv(sum(Ps))
+cov_b_pool = _pool_cov("cov_beta")
+cov_d_pool = _pool_cov("cov_delta")
+cov_bd_pool = sum(third_fits[f"{a}-{b}"]["fits"][LIGHT]["cov_bd"] for a, b in THIRDS) / 9.0
+pooled = delta_rows(beta_pool, beta_se_pool, delta_pool, delta_se_pool, lab, "era", n_po_all,
+                    cov_b_pool, cov_d_pool, cov_bd_pool)
 pooled["lam_delta"] = LIGHT
 out.append(pooled)
 print("\n=== delta pooled over the era (inverse-variance over the three thirds; D flipped, positive = good) ===")
