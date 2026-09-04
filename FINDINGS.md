@@ -794,3 +794,99 @@ failure that produced ladder row 7's defensive knobs in section 13. Widening the
 3.0, interior. `factors.py` now uses its own wider ratio grid and flags any selection that lands on
 an edge. **The lesson from section 13 generalised within one session: always check whether the
 argmax is interior before believing it.**
+
+## 16. The defensive box prior improves prediction and worsens attribution, and both are real
+
+The project owner proposed the criterion this section rests on: fit ratings on some seasons, predict
+the stints of a season they never saw, score by possession-weighted squared error in points per 100.
+It is implemented in `scripts/38_yoy.py` as leave-one-season-out with a symmetric training block --
+hold out H, train on {H-1, H+1} for K=2 or {H-2..H+2} minus H for K=4 -- so the held-out season is
+identical across every method and every K, and aging cancels because the block brackets H.
+
+**This is the first criterion here that is both external to the model and legal to select on.** It
+scores against actual points, so unlike the next-window on-court benchmark it does not share the
+estimate's blind spot; and it uses no outside data, so unlike the consensus CSV it can be optimised
+against without circularity.
+
+### It ranks the shipped hybrid below what the hybrid replaced
+
+Pooled over 28 held-out seasons, paired by season:
+
+| contrast | stint MSE | z | seasons won |
+|---|---|---|---|
+| hybrid vs PI-RAPM (team-priced) | **+1.19** | +4.88 | **5 of 28** |
+| hybrid + xPTS(ft) vs hybrid | −0.15 | −3.51 | 21 of 28 |
+| PI-RAPM vs RAPM with no prior | −8.54 | −14.1 | 28 of 28 |
+
+Every prior beats no prior by a wide margin. But the hybrid -- which the consensus rates 0.896
+against PI-RAPM's 0.784 -- loses here, consistently. It is not a calibration artifact: after fitting
+optimal per-side scalars PI-RAPM still wins, and the hybrid is the better-calibrated system of the
+two (0.93/0.96 against 0.86/0.80). At team-game aggregation the order flips to the hybrid, but not
+significantly (z = -1.34).
+
+Two explanations were tested and one survived.
+
+**Not a coverage problem** (`scripts/39_why.py`). The hybrid gives a lightly-used player almost
+nothing on defense, so the deficit ought to sit with fringe players. It does not: the hybrid is worse
+in every exposure bin and *worst* among established ones (+1.63, z = +5.07, winning 4 of 28 seasons
+at 1500-3999 training possessions), against +0.97 and not significant for players with no training
+exposure at all.
+
+**Partly a credit-transfer problem** (`scripts/40_movers.py`). Splitting held-out rows by how many of
+the ten on the floor changed team since the training block:
+
+| movers on the floor | hybrid - PI | relative to that group's MSE | share of possessions |
+|---|---|---|---|
+| none | +1.94 | 5.9e-4 | 5% |
+| 1-2 | +1.38 | 3.9e-4 | 40% |
+| 3+ | +0.91 | 2.4e-4 | 54% |
+
+The gap halves as rosters turn over, which is the signature of PI-RAPM holding credit that does not
+travel with the player. But it does not reverse, so PI-RAPM's advantage is not purely artifact.
+
+### Sweeping the weight: the criterion has an interior optimum
+
+`scripts/41_defweight.py` puts one scalar `c_def` on the defensive half of the team-priced beta,
+holding the player-priced offensive prior fixed. `c_def = 0` is the shipped hybrid, `c_def = 1` is
+prior-informed RAPM.
+
+| c_def | held-out MSE | paired vs c_def=0 | consensus total | consensus defense | archetype bias |
+|---|---|---|---|---|---|
+| 0.00 | 3627.97 | — | **0.896** | **0.888** | **+0.195** |
+| 0.25 | 3627.05 | −0.93 (z −16.7, 28/28) | 0.878 | 0.872 | +0.376 |
+| 0.50 | 3626.56 | −1.42 (z −13.3, 28/28) | 0.854 | 0.839 | +0.498 |
+| **0.75** | **3626.49** | −1.49 (z −9.6, 27/28) | 0.824 | 0.802 | +0.575 |
+| 1.00 | 3626.85 | −1.13 (z −5.7, 26/28) | 0.791 | 0.766 | +0.623 |
+
+**The optimum is interior at 0.75.** Section 13 recorded that no criterion this project had could
+select the defensive shrinkage -- within-season stint MSE prefers the wrong end at 3.4 standard
+errors, and the next-window on-court benchmark is flat then declines, so it runs to its grid
+boundary. This one chooses. That is the methodological result of this section, independent of which
+value it picks.
+
+**And the consensus is monotone in the opposite direction.** It was read once, after `c_def` was
+selected. Every step that improves held-out prediction costs rank agreement and adds archetype bias,
+without exception, from 0.195 to 0.623 across the sweep.
+
+### What that means, stated carefully
+
+The two criteria are not in conflict; they measure different things, and the defensive box prior does
+both at once. Rebounds and blocks are real events that correlate with a team's defensive outcome, so
+crediting a big man with them predicts his lineups well. But the credit is partly his teammates' --
+a defensive rebound is available because someone contested the shot -- so the lineup SUM is right
+while the SPLIT is wrong. Predicting held-out points mostly rewards the sum. This is memory trap 2
+("calibration on a lineup sum is blind to attribution") restated: leave-one-season-out is a large
+improvement on the within-season version, since about half of a returning player's teammate-
+possessions are with someone new, but the movers table shows only about half the gap is churn-
+sensitive, so it remains substantially a lineup-sum test.
+
+So the honest summary is that **`c_def` trades a forecasting product against a rating product**:
+
+* If the deliverable is *predict what a lineup will do*, `c_def = 0.75` is right and measurably so.
+* If the deliverable is *say who is good*, `c_def = 0` is right, and every anchor in
+  `tests/test_vs_consensus.py` -- Robert Williams, the star guards, the bigness correlation -- is an
+  attribution test that says so.
+
+The project ships a player rating, so nothing is changed on this evidence. But it is now measured
+rather than assumed, and the size of what is being given up is known: about 6% of the rating signal
+in held-out prediction.
