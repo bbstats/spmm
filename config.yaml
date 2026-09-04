@@ -21,18 +21,44 @@ features: [fg3m, fg3_miss, fg2m, fg2_miss, ftm, ft_miss, orb, drb, ast, tov, stl
 
 # Regularization. lam / lam_ratio are chosen once (03_cv.py) and used in every window.
 # chosen once by scripts/03_cv.py on 2000-02 and 2012-14 (RS rows), written to outputs/lambda.yaml.
-lam_beta: 7113.8         # ridge on the two cross-fitted half-fits (beta)
-lam_ratio_beta: 0.6124   # lambda_D / lambda_O there
-lam_plugin: 23258.0      # ridge on the plug-in ratings fit (u given beta)
-lam_ratio_plugin: 0.25   # lambda_D / lambda_O there
+# Re-tuned under player_unit: window (possessions per unit roughly triple).
+lam_beta: 10149.5        # ridge on the two cross-fitted half-fits (beta)
+lam_ratio_beta: 0.5      # lambda_D / lambda_O there
+lam_plugin: 18351.8      # ridge on the plug-in ratings fit (u given beta)
+lam_ratio_plugin: 0.2872 # lambda_D / lambda_O there; REML tau2_O 0.66 vs tau2_D 2.3
 lam_buckets: {}       # e.g. {low_poss: 2.0}; only add after the calibration-by-bucket test says so
-low_poss_threshold: 500   # player-seasons under this many RS possessions form the "low_poss" column group
-starter_poss_threshold: 1500  # and at or above this many form "high_poss" (the starter bucket)
+# Which box prior the shipped ratings shrink toward, per side.
+#   offense: player  the prior priced to predict a PLAYER (windows.player_priced_beta), not a team.
+#   defense: none    no box prior at all -- the box score has no defensive vocabulary (R^2 0.26 of a
+#                    player's rates on his own defensive on-court impact), and pure RAPM beats the
+#                    box-primed defensive rating 0.877 to 0.755.  See scripts/30_ladder.py.
+# Both sides use lam_plugin / lam_ratio_plugin above; the defensive knob is NOT re-tuned here.  The
+# ladder's internal criterion (next-window on-court impact) cannot select it: it is flat across the
+# weakest four penalties and then declines, so it has no interior optimum and just runs to the weak
+# end, because the benchmark shares the estimate's blind spot.  See scripts/33_hybrid.py.
+ratings_prior:
+  offense: player
+  defense: none
+  boost: false        # the boosted correction is worth 0 on total and -0.020 on offense (30_ladder)
+# The random effect unit: "window" gives one player effect per 3-season window, "season" one per
+# player-season (the original spec).  Possession thresholds below are in the unit's own scale.
+player_unit: window
+low_poss_threshold: 1500  # player-windows under this many RS possessions form the "low_poss" group
+starter_poss_threshold: 4500  # and at or above this many form "high_poss" (the starter bucket)
 lam_delta: null       # playoff block ridge; null = no delta block. Chosen by 03_cv.py step 7.
 lam_grid: {start: 100, stop: 60000, num: 28, log: true}
 lam_ratio_grid: [0.25, 0.33, 0.5, 0.75, 1.0, 1.5, 2.0]
 lam_delta_grid: [1e2, 3e2, 1e3, 3e3, 1e4, 3e4, 1e5, 1e6]
 pad_k: auto           # or a per-feature dict override, e.g. {stl: 400, blk: 600}
+boost_min_poss: 4500     # the booster trains only above this; it scores everyone
+boost_quality: null      # ChimeraBoost quality 1-5; null = library default (3)
+# Playing time as a booster feature, per side.  It is frozen at the training reference when
+# scoring, so it only ever absorbs role effects; it never reaches a rating.  Against five
+# stratified permutation nulls, defence gains from it (margin 0.57 over a null of 0.015, against
+# 0.48 over 0.097 without) and offence loses (0.61 over 0.037 with, against 0.80 over 0.069).
+boost_nuisance:
+  O: []
+  D: [poss_rank]
 pad_target: poss_conditional   # chosen at checkpoint 4 (bench prior calibration); league | poss_conditional (padding target for the EB shrinkage of the rates)
 pad_scale_grid: [0.5, 1.0, 2.0]
 min_half_poss: 20     # a split half needs at least this many possessions to enter the k estimate
@@ -53,7 +79,7 @@ cv:
   seed: 0
   lambda_windows: [[2000, 2002], [2012, 2014]]   # MixedModelRAPMCV on these two, RS only
   validation_window: [2012, 2014]
-  poss_buckets: [0, 500, 1500, 1000000]
+  poss_buckets: [0, 1500, 4500, 1000000]
 
 paths:
   raw: data/raw

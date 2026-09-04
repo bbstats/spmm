@@ -1,40 +1,40 @@
 pool,window,side,feature,coef,se,delta,delta_se,coef_playoff,se_playoff,n_po_rows,lam_delta,side_name,stat,delta_z,sign_convention
-era,1997-2026,Total,fg3_miss,-0.2074,0.0456,-0.4688,0.1596,-0.6762,0.1571,137830,100.0,total,3P miss,-2.9374,positive = good on both sides; total = offense + defense
-era,1997-2026,O,fg3_miss,-0.0151,0.0316,-0.3311,0.1131,-0.3462,0.1113,137830,100.0,offense,3P miss,-2.9268,positive = good on both sides; total = offense + defense
-era,1997-2026,Total,tov,-1.2005,0.0628,0.5638,0.2102,-0.6367,0.2088,137830,100.0,total,TOV,2.6821,positive = good on both sides; total = offense + defense
-era,1997-2026,D,blk,0.9039,0.0415,-0.3513,0.14,0.5527,0.138,137830,100.0,defense,BLK,-2.5085,positive = good on both sides; total = offense + defense
-era,1997-2026,O,fg3m,0.9743,0.051,0.3739,0.1831,1.3482,0.1795,137830,100.0,offense,3PM,2.0423,positive = good on both sides; total = offense + defense
-era,1997-2026,O,tov,-0.6902,0.0431,0.3011,0.1506,-0.3891,0.1496,137830,100.0,offense,TOV,1.9985,positive = good on both sides; total = offense + defense
-era,1997-2026,O,blk,-0.0723,0.0392,0.2788,0.1396,0.2065,0.1368,137830,100.0,offense,BLK,1.9981,positive = good on both sides; total = offense + defense
-era,1997-2026,Total,ftm,0.7414,0.0298,-0.1888,0.0957,0.5526,0.0947,137830,100.0,total,FTM,-1.9726,positive = good on both sides; total = offense + defense
-era,1997-2026,D,tov,-0.5103,0.0464,0.2627,0.1512,-0.2476,0.1511,137830,100.0,defense,TOV,1.7379,positive = good on both sides; total = offense + defense
-era,1997-2026,O,ftm,0.6278,0.0204,-0.1131,0.0685,0.5147,0.0676,137830,100.0,offense,FTM,-1.652,positive = good on both sides; total = offense + defense
-era,1997-2026,D,fg2_miss,-0.2585,0.0214,-0.109,0.0682,-0.3675,0.0682,137830,100.0,defense,2P miss,-1.5984,positive = good on both sides; total = offense + defense
-era,1997-2026,Total,fg3m,1.0785,0.074,0.4088,0.2558,1.4873,0.2514,137830,100.0,total,3PM,1.598,positive = good on both sides; total = offense + defense
-era,1997-2026,D,fg2m,0.0555,0.0237,0.0954,0.0777,0.1509,0.0772,137830,100.0,defense,2PM,1.2275,positive = good on both sides; total = offense + defense
-era,1997-2026,D,fg3_miss,-0.1923,0.0335,-0.1377,0.1135,-0.33,0.1123,137830,100.0,defense,3P miss,-1.2133,positive = good on both sides; total = offense + defense
-era,1997-2026,O,fg2m,0.6442,0.0223,-0.086,0.0775,0.5582,0.0765,137830,100.0,offense,2PM,-1.1101,positive = good on both sides; total = offense + defense
-era,1997-2026,D,ftm,0.1136,0.0218,-0.0757,0.0687,0.0379,0.0682,137830,100.0,defense,FTM,-1.1027,positive = good on both sides; total = offense + defense
-era,1997-2026,D,ft_miss,-0.0492,0.0536,0.1538,0.1569,0.1046,0.1557,137830,100.0,defense,FT miss,0.9806,positive = good on both sides; total = offense + defense
-era,1997-2026,D,stl,1.4467,0.0622,0.1802,0.1888,1.627,0.1882,137830,100.0,defense,STL,0.9546,positive = good on both sides; total = offense + defense
-era,1997-2026,Total,fg2_miss,-0.7497,0.0289,-0.0861,0.0976,-0.8359,0.0966,137830,100.0,total,2P miss,-0.8829,positive = good on both sides; total = offense + defense
-era,1997-2026,O,drb,0.0268,0.0177,0.0528,0.0643,0.0796,0.063,137830,100.0,offense,DRB,0.8218,positive = good on both sides; total = offense + defense
-era,1997-2026,Total,pf,-0.2544,0.0356,0.092,0.1292,-0.1624,0.127,137830,100.0,total,PF,0.7121,positive = good on both sides; total = offense + defense
-era,1997-2026,Total,ft_miss,-0.4191,0.0726,0.151,0.2141,-0.268,0.2112,137830,100.0,total,FT miss,0.7055,positive = good on both sides; total = offense + defense
-era,1997-2026,D,pf,0.0474,0.0258,0.0581,0.0906,0.1056,0.0896,137830,100.0,defense,PF,0.6417,positive = good on both sides; total = offense + defense
-era,1997-2026,O,orb,0.5051,0.0299,-0.0614,0.1039,0.4437,0.1027,137830,100.0,offense,ORB,-0.5908,positive = good on both sides; total = offense + defense
-era,1997-2026,Total,ast,0.5263,0.0237,0.0418,0.0813,0.5681,0.0801,137830,100.0,total,AST,0.5134,positive = good on both sides; total = offense + defense
-era,1997-2026,O,stl,0.5253,0.0579,-0.0899,0.1883,0.4355,0.1863,137830,100.0,offense,STL,-0.4773,positive = good on both sides; total = offense + defense
-era,1997-2026,D,ast,0.1297,0.0173,0.0269,0.0591,0.1566,0.0585,137830,100.0,defense,AST,0.4554,positive = good on both sides; total = offense + defense
-era,1997-2026,Total,drb,0.4477,0.0259,0.0394,0.0932,0.4872,0.0913,137830,100.0,total,DRB,0.4233,positive = good on both sides; total = offense + defense
-era,1997-2026,Total,blk,0.8316,0.0566,-0.0724,0.1894,0.7592,0.1857,137830,100.0,total,BLK,-0.3823,positive = good on both sides; total = offense + defense
-era,1997-2026,O,pf,-0.3018,0.0243,0.0338,0.0903,-0.268,0.0889,137830,100.0,offense,PF,0.3746,positive = good on both sides; total = offense + defense
-era,1997-2026,O,fg2_miss,-0.4912,0.0199,0.0229,0.068,-0.4683,0.0675,137830,100.0,offense,2P miss,0.3363,positive = good on both sides; total = offense + defense
-era,1997-2026,Total,stl,1.9721,0.0846,0.0904,0.2707,2.0624,0.2677,137830,100.0,total,STL,0.3338,positive = good on both sides; total = offense + defense
-era,1997-2026,Total,orb,0.4216,0.0438,-0.0503,0.1508,0.3713,0.1489,137830,100.0,total,ORB,-0.3333,positive = good on both sides; total = offense + defense
-era,1997-2026,O,ast,0.3966,0.0164,0.0148,0.059,0.4115,0.0581,137830,100.0,offense,AST,0.2512,positive = good on both sides; total = offense + defense
-era,1997-2026,D,drb,0.4209,0.0186,-0.0134,0.0644,0.4076,0.0634,137830,100.0,defense,DRB,-0.2078,positive = good on both sides; total = offense + defense
-era,1997-2026,D,fg3m,0.1043,0.054,0.0349,0.1836,0.1391,0.1811,137830,100.0,defense,3PM,0.1899,positive = good on both sides; total = offense + defense
-era,1997-2026,D,orb,-0.0836,0.0318,0.0112,0.1043,-0.0724,0.1037,137830,100.0,defense,ORB,0.1069,positive = good on both sides; total = offense + defense
-era,1997-2026,Total,fg2m,0.6997,0.0324,0.0094,0.109,0.7091,0.1075,137830,100.0,total,2PM,0.0861,positive = good on both sides; total = offense + defense
-era,1997-2026,O,ft_miss,-0.3698,0.0499,-0.0028,0.1564,-0.3726,0.1539,137830,100.0,offense,FT miss,-0.0179,positive = good on both sides; total = offense + defense
+era,1997-2026,O,blk,-0.1237,0.0481,0.5403,0.1563,0.4166,0.1558,137830,100.0,offense,BLK,3.4567,positive = good on both sides; total = offense + defense
+era,1997-2026,D,blk,0.8817,0.0557,-0.478,0.1568,0.4037,0.159,137830,100.0,defense,BLK,-3.0494,positive = good on both sides; total = offense + defense
+era,1997-2026,D,fg2m,0.0721,0.0405,0.3036,0.1121,0.3757,0.1149,137830,100.0,defense,2PM,2.7081,positive = good on both sides; total = offense + defense
+era,1997-2026,O,fg3m,1.3904,0.0897,0.8337,0.3114,2.2242,0.3099,137830,100.0,offense,3PM,2.6771,positive = good on both sides; total = offense + defense
+era,1997-2026,Total,tov,-1.6304,0.0976,0.6685,0.2668,-0.9619,0.273,137830,100.0,total,TOV,2.506,positive = good on both sides; total = offense + defense
+era,1997-2026,D,fg3m,0.3746,0.1007,-0.7516,0.3124,-0.3769,0.3153,137830,100.0,defense,3PM,-2.4056,positive = good on both sides; total = offense + defense
+era,1997-2026,D,fg2_miss,-0.2519,0.0377,-0.249,0.1046,-0.5008,0.1074,137830,100.0,defense,2P miss,-2.3805,positive = good on both sides; total = offense + defense
+era,1997-2026,Total,ft_miss,-0.5506,0.1044,-0.548,0.2342,-1.0986,0.2414,137830,100.0,total,FT miss,-2.3399,positive = good on both sides; total = offense + defense
+era,1997-2026,O,fg3_miss,-0.1796,0.0558,-0.4388,0.1943,-0.6183,0.1939,137830,100.0,offense,3P miss,-2.2583,positive = good on both sides; total = offense + defense
+era,1997-2026,D,tov,-0.7193,0.0746,0.4471,0.2012,-0.2721,0.2072,137830,100.0,defense,TOV,2.2221,positive = good on both sides; total = offense + defense
+era,1997-2026,O,ft_miss,-0.3905,0.069,-0.3475,0.1815,-0.738,0.1838,137830,100.0,offense,FT miss,-1.9147,positive = good on both sides; total = offense + defense
+era,1997-2026,Total,fg2_miss,-0.8248,0.0487,-0.2618,0.1438,-1.0866,0.1457,137830,100.0,total,2P miss,-1.821,positive = good on both sides; total = offense + defense
+era,1997-2026,D,fg3_miss,-0.3765,0.0624,0.3491,0.1949,-0.0274,0.1971,137830,100.0,defense,3P miss,1.7912,positive = good on both sides; total = offense + defense
+era,1997-2026,Total,fg2m,0.8409,0.0527,0.2633,0.1563,1.1042,0.1579,137830,100.0,total,2PM,1.6849,positive = good on both sides; total = offense + defense
+era,1997-2026,D,ftm,0.1707,0.0335,-0.1,0.0801,0.0707,0.083,137830,100.0,defense,FTM,-1.2488,positive = good on both sides; total = offense + defense
+era,1997-2026,D,ast,0.1793,0.0256,-0.0854,0.0712,0.0939,0.0725,137830,100.0,defense,AST,-1.1997,positive = good on both sides; total = offense + defense
+era,1997-2026,Total,ftm,0.7792,0.0434,-0.1215,0.1072,0.6576,0.1098,137830,100.0,total,FTM,-1.1338,positive = good on both sides; total = offense + defense
+era,1997-2026,O,tov,-0.9111,0.0641,0.2214,0.2006,-0.6898,0.2026,137830,100.0,offense,TOV,1.1038,positive = good on both sides; total = offense + defense
+era,1997-2026,D,ft_miss,-0.1601,0.081,-0.2005,0.1818,-0.3606,0.1895,137830,100.0,defense,FT miss,-1.1029,positive = good on both sides; total = offense + defense
+era,1997-2026,D,stl,1.4863,0.0816,0.2234,0.2051,1.7098,0.2105,137830,100.0,defense,STL,1.0895,positive = good on both sides; total = offense + defense
+era,1997-2026,O,orb,0.5254,0.0422,0.1351,0.1333,0.6605,0.1338,137830,100.0,offense,ORB,1.0138,positive = good on both sides; total = offense + defense
+era,1997-2026,Total,orb,0.3365,0.0639,0.1488,0.187,0.4854,0.189,137830,100.0,total,ORB,0.7959,positive = good on both sides; total = offense + defense
+era,1997-2026,Total,ast,0.6543,0.0337,-0.0737,0.0954,0.5806,0.0964,137830,100.0,total,AST,-0.7723,positive = good on both sides; total = offense + defense
+era,1997-2026,Total,stl,2.1486,0.1064,0.1908,0.2804,2.3394,0.2844,137830,100.0,total,STL,0.6804,positive = good on both sides; total = offense + defense
+era,1997-2026,O,drb,0.0373,0.0228,-0.042,0.0732,-0.0047,0.073,137830,100.0,offense,DRB,-0.5732,positive = good on both sides; total = offense + defense
+era,1997-2026,Total,drb,0.4439,0.0346,-0.0573,0.1037,0.3866,0.104,137830,100.0,total,DRB,-0.5529,positive = good on both sides; total = offense + defense
+era,1997-2026,O,fg2m,0.7687,0.0354,-0.0402,0.1118,0.7285,0.1126,137830,100.0,offense,2PM,-0.36,positive = good on both sides; total = offense + defense
+era,1997-2026,Total,fg3_miss,-0.5561,0.0825,-0.0897,0.2622,-0.6457,0.2631,137830,100.0,total,3P miss,-0.342,positive = good on both sides; total = offense + defense
+era,1997-2026,Total,blk,0.758,0.0728,0.0623,0.2083,0.8202,0.2094,137830,100.0,total,BLK,0.2989,positive = good on both sides; total = offense + defense
+era,1997-2026,O,ftm,0.6084,0.0284,-0.0215,0.0799,0.5869,0.0807,137830,100.0,offense,FTM,-0.2689,positive = good on both sides; total = offense + defense
+era,1997-2026,D,drb,0.4067,0.0262,-0.0154,0.0733,0.3913,0.0744,137830,100.0,defense,DRB,-0.2094,positive = good on both sides; total = offense + defense
+era,1997-2026,Total,fg3m,1.7651,0.1334,0.0822,0.4195,1.8472,0.4199,137830,100.0,total,3PM,0.1959,positive = good on both sides; total = offense + defense
+era,1997-2026,O,ast,0.475,0.0224,0.0117,0.0711,0.4867,0.0712,137830,100.0,offense,AST,0.1647,positive = good on both sides; total = offense + defense
+era,1997-2026,O,stl,0.6623,0.0698,-0.0327,0.2045,0.6296,0.2054,137830,100.0,offense,STL,-0.1598,positive = good on both sides; total = offense + defense
+era,1997-2026,O,fg2_miss,-0.5729,0.0328,-0.0128,0.1043,-0.5858,0.1052,137830,100.0,offense,2P miss,-0.1231,positive = good on both sides; total = offense + defense
+era,1997-2026,D,orb,-0.1889,0.0485,0.0137,0.1336,-0.1751,0.1365,137830,100.0,defense,ORB,0.1026,positive = good on both sides; total = offense + defense
+era,1997-2026,D,pf,0.1688,0.0369,0.0046,0.1051,0.1734,0.1068,137830,100.0,defense,PF,0.0439,positive = good on both sides; total = offense + defense
+era,1997-2026,O,pf,-0.2363,0.0322,-0.0043,0.105,-0.2407,0.105,137830,100.0,offense,PF,-0.0412,positive = good on both sides; total = offense + defense
+era,1997-2026,Total,pf,-0.0675,0.0484,0.0003,0.1451,-0.0672,0.1462,137830,100.0,total,PF,0.002,positive = good on both sides; total = offense + defense

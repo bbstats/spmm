@@ -1,26 +1,26 @@
 pad_target: poss_conditional
-lam_beta: 7113.786608980127
-lam_ratio_beta: 0.6123724356957945
-lam_plugin: 23258.049332526516
-lam_ratio_plugin: 0.25
+lam_beta: 10149.451432776592
+lam_ratio_beta: 0.5
+lam_plugin: 18351.805451796346
+lam_ratio_plugin: 0.2872281323269014
 windows:
   2000-2002:
+    lam_beta: 11425.884117808895
+    ratio_beta: 0.5
+    how_beta: reml
+    lam_plugin: 18351.805451796346
+    ratio_plugin: 0.33
+    how_plugin: reml
+    sigma2: 11691.916311278645
+    n_rows: 188347.0
+    n_ps: 597.0
+  2012-2014:
     lam_beta: 9015.614312570586
     ratio_beta: 0.5
     how_beta: reml
-    lam_plugin: 23258.049332526516
+    lam_plugin: 18351.805451796346
     ratio_plugin: 0.25
     how_plugin: reml
-    sigma2: 11675.190309511747
-    n_rows: 188347.0
-    n_ps: 1320.0
-  2012-2014:
-    lam_beta: 5613.146055676366
-    ratio_beta: 0.75
-    how_beta: reml
-    lam_plugin: 23258.049332526516
-    ratio_plugin: 0.25
-    how_plugin: reml
-    sigma2: 12426.786784439026
+    sigma2: 12435.25532930053
     n_rows: 182568.0
-    n_ps: 1429.0
+    n_ps: 657.0
