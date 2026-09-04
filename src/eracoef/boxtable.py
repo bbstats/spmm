@@ -81,3 +81,38 @@ def player_names(box: pd.DataFrame, pbp_names: pd.DataFrame | None = None) -> pd
             out.append(f"{first} {p}")            # "Enes Kanter", "Metta World Peace"
     m["player_name"] = out
     return m[["player_id", "season", "player_name"]]
+
+
+def ft_padding(box: pd.DataFrame, min_fta: float = 20.0) -> tuple[float, float]:
+    """League free-throw percentage and the empirical-Bayes padding constant k, in ATTEMPTS.
+
+    Method of moments on player-season totals.  A made/attempt proportion has within-player variance
+    p(1-p)/n, so the between-player variance is what is left after subtracting it:
+
+        tau2 = Var(p_hat) - E[p_hat (1 - p_hat) / n]
+        k    = E[p_hat (1 - p_hat)] / tau2
+
+    k is in ATTEMPTS, which is the unit free-throw percentage is measured in.  BoxExposure's
+    split_half_k estimates a k per 100 POSSESSIONS for the lineup exposure -- a different unit and a
+    different quantity -- which is why this is four lines of its own rather than a reuse of it.
+    """
+    import numpy as np
+    g = box.groupby(["player_id", "season"], as_index=False)[["ftm", "ft_miss"]].sum()
+    g["fta"] = g.ftm + g.ft_miss
+    g = g[g.fta >= min_fta]
+    if len(g) < 20:
+        return 0.75, 40.0
+    p = (g.ftm / g.fta).to_numpy()
+    w = g.fta.to_numpy()
+    league = float(g.ftm.sum() / g.fta.sum())
+    mu = np.average(p, weights=w)
+    between = np.average((p - mu) ** 2, weights=w)
+    within = np.average(p * (1 - p) / w, weights=w)
+    tau2 = max(between - within, 1e-6)
+    return league, float(np.average(p * (1 - p), weights=w) / tau2)
+
+
+def ft_totals(box: pd.DataFrame) -> dict:
+    """player_id -> (ftm, fta) season totals, for the leave-one-game-out shooter rate."""
+    g = box.groupby("player_id", as_index=False)[["ftm", "ft_miss"]].sum()
+    return {int(r.player_id): (float(r.ftm), float(r.ftm + r.ft_miss)) for r in g.itertuples(index=False)}

@@ -43,7 +43,8 @@ RIM_FT = 3.0          # feet; at or inside this is the "rim" bucket
 # leaves every stale file loading happily with the new columns silently absent.
 #   1  the original schema: poss/pts/margin/lineups
 #   2  per-possession counters (POSS_COUNTERS below), for the luck-adjusted target
-STINT_SCHEMA = 2
+#   3  xftm / xftm_tech: expected free-throw makes, the first luck-adjusted term
+STINT_SCHEMA = 3
 
 
 class StaleStintCache(RuntimeError):
@@ -77,7 +78,18 @@ POSS_COUNTERS = (
     "oreb_p", "oreb_t", "oreb_unattr",
     "fga_rim", "fgm_rim", "fga_mid", "fgm_mid", "fga_thr", "fgm_thr",
     "att1_rim", "att1_mid", "att1_thr", "att1_ft",          # the possession's FIRST attempt only
+    "xftm", "xftm_tech",                                    # EXPECTED free-throw makes (see below)
 )
+
+# Expected free throws replace the ones that actually went in, which is the first and cleanest piece
+# of the luck adjustment: whether a free throw drops is close to pure noise, and it is a fifth of all
+# scoring.  `xftm` is the sum over the possession's attempts of the SHOOTER's own leave-one-game-out
+# padded percentage.
+#
+# The shooter's own rate, not the lineup's: free-throw percentage is a property of one identified
+# player and is essentially unaffected by the defence, so a lineup-level RAPM would throw away the
+# identification we already have for free.
+FT_LEAGUE_DEFAULT = 0.75
 
 
 def parse_clock(s: str) -> float:
@@ -126,7 +138,7 @@ class GameParser:
     """Turn one game's V3 play-by-play into possessions with lineups."""
 
     def __init__(self, pbp: pd.DataFrame, box: pd.DataFrame, home_id: int, away_id: int, game_id: str,
-                 period_box_fetcher=None, gt_rule=None):
+                 period_box_fetcher=None, gt_rule=None, ft_rates=None):
         self.game_id = game_id
         self.home, self.away = int(home_id), int(away_id)
         self.teams = (self.home, self.away)
@@ -168,6 +180,21 @@ class GameParser:
         for c in ("scoreHome", "scoreAway"):
             ev[c] = pd.to_numeric(ev[c], errors="coerce").fillna(0).astype(int)
         self.ev = ev.reset_index(drop=True)
+        # leave-one-game-out free-throw percentage per shooter: season totals minus this game's, so a
+        # player's own makes never price the possessions he is being scored on
+        self._ft = None
+        if ft_rates is not None:
+            totals, league, k = ft_rates
+            made_g, att_g = {}, {}
+            for r in self.ev.itertuples(index=False):
+                if r.actionType != "Free Throw":
+                    continue
+                pid = int(r.personId)
+                d = str(r.description)
+                made = ("PTS" in d) or (not d.startswith("MISS") and (r.scoreHome + r.scoreAway) > 0)
+                att_g[pid] = att_g.get(pid, 0) + 1
+                made_g[pid] = made_g.get(pid, 0) + int(made)
+            self._ft = (totals, float(league), float(k), made_g, att_g)
         # names as written in this game's play-by-play (the box score carries players' current names,
         # the play-by-play the names of the day: Nene vs Hilario, Kanter vs Freedom, ...)
         self.pbp_names = {t: {} for t in self.teams}
@@ -307,6 +334,16 @@ class GameParser:
             out[t] = None
         return out
 
+    def ft_prob(self, pid: int) -> float:
+        """The shooter's padded FT%, with this game's own attempts removed."""
+        if self._ft is None:
+            return FT_LEAGUE_DEFAULT
+        totals, league, k, made_g, att_g = self._ft
+        m, a = totals.get(int(pid), (0.0, 0.0))
+        m -= made_g.get(int(pid), 0)
+        a -= att_g.get(int(pid), 0)
+        return (max(m, 0.0) + k * league) / (max(a, 0.0) + k)
+
     # ---------------------------------------------------------------- main loop
     def possessions(self) -> pd.DataFrame:
         recs = []
@@ -316,6 +353,7 @@ class GameParser:
         # deferred exactly like their points, so the counters stay complete
         pend_fta = {self.home: 0, self.away: 0}
         pend_ftm = {self.home: 0, self.away: 0}
+        pend_xftm = {self.home: 0.0, self.away: 0.0}
         for period, grp in self.ev.groupby("period", sort=True):
             self.diag["n_periods"] += 1
             rows = list(grp.itertuples(index=False))
@@ -358,9 +396,11 @@ class GameParser:
                     ct["pts_tech"] += pending[offense]
                     ct["fta_tech"] += pend_fta[offense]
                     ct["ftm_tech"] += pend_ftm[offense]
+                    ct["xftm_tech"] += pend_xftm[offense]
                     pending[offense] = 0
                     pend_fta[offense] = 0
                     pend_ftm[offense] = 0
+                    pend_xftm[offense] = 0.0
                     ok = valid[self.home] and valid[self.away] and len(on[self.home]) == 5 and len(on[self.away]) == 5
                     if not ok:
                         self.diag["invalid_possessions"] += 1
@@ -430,7 +470,9 @@ class GameParser:
                                         rec["pts_tech"] += pending[t]   # keep the identity exact
                                         rec["fta_tech"] += pend_fta[t]
                                         rec["ftm_tech"] += pend_ftm[t]
+                                        rec["xftm_tech"] += pend_xftm[t]
                                         pending[t] = pend_fta[t] = pend_ftm[t] = 0
+                                        pend_xftm[t] = 0.0
                                         break
                     continue
                 if at == "Substitution":
@@ -556,12 +598,15 @@ class GameParser:
                                 ct["pts_tech"] += 1
                             else:
                                 pending[team] += 1   # credited to the team's next (or, at period end, last) possession
+                        q = self.ft_prob(r.personId)
                         if live:
                             ct["fta_tech"] += 1
                             ct["ftm_tech"] += made
+                            ct["xftm_tech"] += q
                         else:
                             pend_fta[team] += 1
                             pend_ftm[team] += made
+                            pend_xftm[team] += q
                         continue
                     ensure_offense(team, i)     # may close(); every counter below must follow it
                     m = FT_RE.search(st)
@@ -590,6 +635,7 @@ class GameParser:
                             sc["retain_pending"] = 1
                     ct["fta"] += 1
                     ct["ftm"] += made
+                    ct["xftm"] += self.ft_prob(r.personId)
                     if ct["att"] <= 1:
                         ct["fta1"] += 1     # free throws belonging to the possession's first attempt
                     if made:
@@ -652,11 +698,12 @@ class GameParser:
 
 
 # ----------------------------------------------------------------------------- season driver
-def build_game(game_id: str, home_id: int, away_id: int, cfg, gt_rule=None):
+def build_game(game_id: str, home_id: int, away_id: int, cfg, gt_rule=None, ft_rates=None):
     pbp = fetch_pbp(game_id, cfg)
     box = fetch_boxscore(game_id, cfg)
     fetcher = lambda gid, p: fetch_period_box(gid, p, cfg)  # noqa: E731
-    gp = GameParser(pbp, box, home_id, away_id, game_id, period_box_fetcher=fetcher, gt_rule=gt_rule)
+    gp = GameParser(pbp, box, home_id, away_id, game_id, period_box_fetcher=fetcher, gt_rule=gt_rule,
+                    ft_rates=ft_rates)
     poss = gp.possessions()
     st = gp.stints(poss)
     d = dict(gp.diag)
@@ -691,12 +738,16 @@ def build_season(season: int, phase: str, cfg, force=False, verbose=True):
     gl = load_gamelog(season, phase, cfg)
     games = game_table(gl)
     gt_rule = cfg.get("garbage_time", {})
+    # the shooters' season free-throw totals, for the leave-one-game-out expected-makes term
+    from .boxtable import box_from_gamelog, ft_padding, ft_totals
+    sb = box_from_gamelog(gl)
+    ft_rates = (ft_totals(sb), *ft_padding(sb))
     neutral_seasons = set(cfg.get("neutral_site_seasons_po", []))
     parts, diags, name_parts = [], [], []
     t0 = time.time()
     for k, g in enumerate(games.itertuples(index=False)):
         try:
-            st, d, nm = build_game(g.game_id, g.home_team_id, g.away_team_id, cfg, gt_rule)
+            st, d, nm = build_game(g.game_id, g.home_team_id, g.away_team_id, cfg, gt_rule, ft_rates)
         except Exception as e:  # noqa: BLE001
             diags.append(dict(game_id=g.game_id, error=repr(e)[:300]))
             continue

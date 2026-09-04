@@ -28,7 +28,12 @@ STINT_COLUMNS = ["game_id", "season", "phase", "series_id", "period", *HOME_SLOT
 # points-per-100 scale and do NOT transport to a rate target -- select them per target.
 TARGETS = {
     "pts":  dict(num={"pts": 1.0}, den="poss", scale=100.0),                    # points per 100
-    "xpts": dict(num={"xpts": 1.0}, den="poss", scale=100.0),                   # luck-adjusted points
+    # Luck-adjusted points, stage 3: made free throws replaced by expected ones.  Derived here
+    # rather than stored, because it is a fixed linear combination of counters -- no fitted quantity
+    # enters, so there is nothing circular about computing it at design time.  The stage 4 shot term
+    # WILL depend on fitted lineup rates and therefore cannot live in the stints at all.
+    "xpts_ft": dict(num={"pts": 1.0, "ftm": -1.0, "ftm_tech": -1.0, "xftm": 1.0, "xftm_tech": 1.0},
+                    den="poss", scale=100.0),
     "efg":  dict(num={"fgm": 1.0, "fg3m": 0.5}, den="fga", scale=100.0),        # effective FG%
     "tov":  dict(num={"tov": 1.0}, den="poss", scale=100.0),                    # turnovers per 100
     "oreb": dict(num={"reb_cont": 1.0}, den="reb_chance", scale=100.0),         # offensive rebound %
