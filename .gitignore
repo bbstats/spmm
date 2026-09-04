@@ -221,7 +221,12 @@ __marimo__/
 # era-coefs: raw and intermediate data caches. Regenerate with
 #   python scripts/01_ingest.py 1997 2026 RS,PO
 #   python scripts/02_stints.py 1997 2026 RS,PO
-data/
+# data/external is the exception: it holds the external validation snapshot, which cannot be
+# regenerated because it is a live Google Sheet.
+/data/*
+!/data/external/
+/data/external/*
+!/data/external/*.csv
 *.parquet
 !outputs/*.parquet
 outputs/*.npy
@@ -229,3 +234,14 @@ outputs/*.npy
 # scratch renders
 outputs/_*.png
 outputs/_*.html
+
+
+# regenerable grids: scratch from the ratings investigation, tens of MB, rebuilt by their scripts
+outputs/tune_u.parquet
+outputs/ladder.parquet
+outputs/xrapm_panel.parquet
+outputs/defensive_prior_grid.parquet
+outputs/free_scale_ratings.parquet
+outputs/investigate_rapm.parquet
+outputs/remedy.parquet
+outputs/diagnostic_payload.json

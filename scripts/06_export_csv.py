@@ -90,7 +90,7 @@ if po_path.exists():
     pw.columns = [c[0] if not c[1] else f"{c[0]}_{c[1]}" for c in pw.columns]
     pw.round(4).to_csv(CSV / "playoffs_by_window.csv", index=False)
 
-for name in ("variance", "feature_corr", "player_ratings", "player_ratings_by_window"):
+for name in ("variance", "feature_corr", "player_ratings", "ratings_boosted"):
     p = OUT / f"{name}.parquet"
     if p.exists():
         pd.read_parquet(p).round(4).to_csv(CSV / f"{name}.csv", index=False)

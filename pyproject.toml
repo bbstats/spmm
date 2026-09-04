@@ -9,6 +9,7 @@ dependencies = [
   "pandas>=2.1",
   "pyarrow>=14",
   "scikit-learn>=1.4",
+  "chimeraboost>=0.32",
   "plotly>=5.18",
   "matplotlib>=3.8",
   "nba_api>=1.4",

@@ -58,7 +58,7 @@ def test_crossfit_covariates_from_other_half_only(small):
         assert set(exp.covariate_games_) == set(np.flatnonzero(gh == other))
         gb = wd.game_box[(wd.game_box.phase == "RS") & (gh[wd.game_box.game_idx.to_numpy()] == other)]
         tot = np.zeros_like(exp.totals_)
-        np.add.at(tot, gb.ps_idx.to_numpy(), gb[FEATURES].to_numpy())
+        np.add.at(tot, gb.psx_idx.to_numpy(), gb[FEATURES].to_numpy())
         np.testing.assert_allclose(exp.totals_, tot)
         # every row of a player-season gets the same number: Xbox_O == sum of rates_[ps]
         Xt = exp.transform(wd.X[m])
@@ -86,8 +86,8 @@ def test_loo_rate_excludes_own_game(small):
         manual = 0
         for p in po:
             C = exp.totals_[p].copy(); P = exp.poss_off_[p]
-            gb = wd.game_box[(wd.game_box.game_idx == game[r]) & (wd.game_box.ps_idx == p) & (wd.game_box.phase == "RS")]
-            gp = wd.game_poss[(wd.game_poss.game_idx == game[r]) & (wd.game_poss.ps_idx == p)]
+            gb = wd.game_box[(wd.game_box.game_idx == game[r]) & (wd.game_box.psx_idx == p) & (wd.game_box.phase == "RS")]
+            gp = wd.game_poss[(wd.game_poss.game_idx == game[r]) & (wd.game_poss.psx_idx == p)]
             if len(gb):
                 C -= gb[FEATURES].to_numpy()[0]
             if len(gp):
@@ -104,7 +104,7 @@ def test_full_mode_test_rows_use_training_totals_only(small):
     exp = _exp(wd, mode="full").fit(wd.X[tr])
     gb = wd.game_box[(wd.game_box.phase == "RS") & ~wd.game_box.game_idx.isin(held)]
     tot = np.zeros_like(exp.totals_)
-    np.add.at(tot, gb.ps_idx.to_numpy(), gb[FEATURES].to_numpy())
+    np.add.at(tot, gb.psx_idx.to_numpy(), gb[FEATURES].to_numpy())
     np.testing.assert_allclose(exp.totals_, tot)
     assert not np.isin(held, exp.covariate_games_).any()
     Xt = exp.transform(wd.X[te])
@@ -388,3 +388,44 @@ def test_bootstrap_schemes_and_neff(small):
     exp2 = crossfit_beta(wd, lam=8000.0, game_mult=gm).fits["A"]["exposure"]
     np.testing.assert_allclose(exp2.poss_off_, 2 * exp.poss_off_, rtol=1e-10)
     np.testing.assert_allclose(exp2.poss_off_eff_, exp.poss_off_, rtol=1e-10)
+
+
+def test_player_window_unit(small):
+    """Window units give one Z column per player, one solve block, and the same per-season k."""
+    sim, _ = small
+    cfg_s = dict(CFG, player_unit="season")
+    cfg_w = dict(CFG, player_unit="window")
+    ws = build_design(sim["stints"], sim["box"], FEATURES, cfg_s)
+    ww = build_design(sim["stints"], sim["box"], FEATURES, cfg_w)
+    n_players = sim["box"].player_id.nunique()
+    assert ww.spec.n_ps == n_players and ws.spec.n_ps > ww.spec.n_ps
+    assert ww.spec.n_psx == ws.spec.n_ps                      # bookkeeping unit is unchanged
+    assert len(ww.spec.season_cols()) == 1                    # one block, players span the window
+    assert len(ws.spec.season_cols()) == ws.spec.n_seasons
+    np.testing.assert_array_equal(np.sort(np.concatenate(ww.spec.season_cols())), np.arange(2 * ww.spec.n_ps))
+    es = _exp(ws, mode="full", pad_k="auto").fit(ws.X, sample_weight=ws.w)
+    ew = _exp(ww, mode="full", pad_k="auto").fit(ww.X, sample_weight=ww.w)
+    np.testing.assert_allclose(ew.pad_k_, es.pad_k_, rtol=1e-10)     # k stays per season
+    assert ew.rates_.shape == (n_players, len(FEATURES))
+    # a window unit pools its player-seasons' counts and possessions
+    assert ew.poss_off_.sum() == pytest.approx(es.poss_off_.sum())
+    cf = crossfit_beta(ww, lam=8000.0, pad_target="league")
+    assert np.isfinite(cf.beta_).all() and np.isfinite(cf.beta_se_).all()
+
+
+def test_prior_offset_matches_dense_box(medium):
+    """A per-player prior enters as Z @ prior_vec, identical to the dense box @ beta path."""
+    _, wd = medium
+    pipe = make_pipeline(wd, lam=6000.0, mode="full").fit(wd.X, wd.y, sample_weight=wd.w)
+    exp, mm = pipe["exposure"], pipe["mm"]
+    nf = mm.n_feat_
+    beta = mm.beta_
+    prior = np.concatenate([(exp.season_rates_ - exp.means_o_ / 5) @ beta[:nf],
+                            (exp.season_rates_d_ - exp.means_d_ / 5) @ beta[nf:]])
+    # beta as an offset must reproduce the same u as beta as a fitted block
+    plug = plugin_fit(wd, beta, lam=6000.0)["mm"]  # noqa: E501
+    off = make_pipeline(wd, lam=6000.0, mode="full", features=[]).fit(wd.X, wd.y, sample_weight=wd.w)
+    est = MixedModelRAPM(lam=6000.0, spec=wd.spec, prior_offset=prior)
+    Xt = off["exposure"].transform(wd.X)
+    est.fit(Xt, wd.y, sample_weight=wd.w)
+    np.testing.assert_allclose(est.u_, plug.u_, rtol=1e-8, atol=1e-10)

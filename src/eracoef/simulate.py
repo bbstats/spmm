@@ -131,6 +131,13 @@ def simulate(n_seasons=2, n_teams=10, players_per_team=12, games_per_season=150,
 
 
 def truth_aligned(truth: dict, spec) -> pd.DataFrame:
-    """Truth table aligned to spec.ps_table (one row per Z column of the O block)."""
-    t = spec.ps_table.merge(truth["ps"], on=["player_id", "season"], how="left")
-    return t
+    """Truth table aligned to spec.ps_table (one row per Z column of the O block).
+
+    With player-window units a player has one Z column but several seasons of truth, so the
+    truth is averaged over his seasons before the join.
+    """
+    ps = truth["ps"]
+    if getattr(spec, "player_unit", "season") == "window":
+        ps = ps.groupby("player_id", as_index=False).mean(numeric_only=True).drop(columns="season", errors="ignore")
+        return spec.ps_table.merge(ps, on="player_id", how="left")
+    return spec.ps_table.merge(ps, on=["player_id", "season"], how="left")

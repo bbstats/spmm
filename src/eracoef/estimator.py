@@ -39,16 +39,17 @@ class _Layout:
     offset: np.ndarray | None = None   # X_box beta_fixed (+ delta block) when beta is plugged in
     box: np.ndarray | None = None      # raw [Xbox_O | Xbox_D]
     is_po: np.ndarray | None = None
+    n_scale: int = 0                   # 2 when the per-side prior scales are free columns
 
     def rows(self, idx):
         return _Layout(None if self.Z is None else self.Z[idx], self.Xf[idx], self.fixed_names, self.pen_diag,
                        self.n_feat, self.n_delta, self.box_slice, self.f_slice, self.delta_slice,
                        None if self.offset is None else self.offset[idx],
                        None if self.box is None else self.box[idx],
-                       None if self.is_po is None else self.is_po[idx])
+                       None if self.is_po is None else self.is_po[idx], self.n_scale)
 
 
-def _layout(X, spec, lam_delta, beta_fixed=None):
+def _layout(X, spec, lam_delta, beta_fixed=None, prior_offset=None, free_prior_scale=False):
     if spec is None:
         Xf = X.toarray() if sp.issparse(X) else np.asarray(X, dtype=float)
         p = Xf.shape[1]
@@ -67,16 +68,30 @@ def _layout(X, spec, lam_delta, beta_fixed=None):
     is_po = F[:, spec.f_names.index("is_po")]
     use_delta = lam_delta is not None and n_feat > 0
     offset = None
+    n_scale = 0
     parts, names, pen = [], [], []
     if beta_fixed is not None:
         bf = np.asarray(beta_fixed, dtype=float)
         if bf.shape[0] not in (2 * n_feat, 4 * n_feat):
             raise ValueError("beta_fixed must have 2*n_feat entries (beta) or 4*n_feat (beta then delta)")
-        offset = box @ bf[:2 * n_feat]
         fix_delta = bf.shape[0] == 4 * n_feat
-        if fix_delta:
-            offset = offset + (box * is_po[:, None]) @ bf[2 * n_feat:]
-        p0 = 0
+        if free_prior_scale:
+            # The lineup-sum box prior enters as two free unpenalized columns, one per side, so the
+            # stint fit decides how far to trust each side's box score instead of being told to
+            # trust it exactly.  A coefficient of 1 reproduces the plug-in offset; below 1 means the
+            # prior is noisier than it is being priced at and should regress toward the mean.
+            parts.append(np.column_stack([box[:, :n_feat] @ bf[:n_feat],
+                                          box[:, n_feat:] @ bf[n_feat:2 * n_feat]]))
+            names += ["scale:O", "scale:D"]
+            pen.append(np.zeros(2))
+            n_scale, p0 = 2, 2
+            if fix_delta:
+                offset = (box * is_po[:, None]) @ bf[2 * n_feat:]
+        else:
+            offset = box @ bf[:2 * n_feat]
+            if fix_delta:
+                offset = offset + (box * is_po[:, None]) @ bf[2 * n_feat:]
+            p0 = 0
     else:
         parts.append(box)
         names += [f"O:{f}" for f in feats] + [f"D:{f}" for f in feats]
@@ -93,9 +108,14 @@ def _layout(X, spec, lam_delta, beta_fixed=None):
         names += [f"dO:{f}" for f in feats] + [f"dD:{f}" for f in feats]
         pen.append(np.full(2 * n_feat, float(lam_delta)))
         n_delta = 2 * n_feat
+    if prior_offset is not None:
+        # a per-player prior (the boosted term): its row contribution is the sum over the ten
+        # players on the floor, which is exactly Z @ prior_offset
+        po = Z @ np.asarray(prior_offset, dtype=float)
+        offset = po if offset is None else offset + po
     Xf = np.hstack(parts)
     return _Layout(Z, Xf, names, np.concatenate(pen), n_feat, n_delta,
-                   slice(0, p0), slice(p0, p1), slice(p1, p1 + n_delta), offset, box, is_po)
+                   slice(0, p0), slice(p0, p1), slice(p1, p1 + n_delta), offset, box, is_po, n_scale)
 
 
 # ----------------------------------------------------------------------------- solution
@@ -272,13 +292,16 @@ class MixedModelRAPM(RegressorMixin, BaseEstimator):
     spec : DesignSpec.  None -> every column of X is an unpenalized fixed effect (plain WLS).
     """
 
-    def __init__(self, lam=1000.0, lam_ratio=1.0, lam_buckets=None, lam_delta=None, beta_fixed=None, spec=None):
+    def __init__(self, lam=1000.0, lam_ratio=1.0, lam_buckets=None, lam_delta=None, beta_fixed=None,
+                 prior_offset=None, spec=None, free_prior_scale=False):
         self.lam = lam
         self.lam_ratio = lam_ratio
         self.lam_buckets = lam_buckets
         self.lam_delta = lam_delta
         self.beta_fixed = beta_fixed
+        self.prior_offset = prior_offset
         self.spec = spec
+        self.free_prior_scale = free_prior_scale
 
     # ---- helpers
     def _scale(self):
@@ -300,7 +323,8 @@ class MixedModelRAPM(RegressorMixin, BaseEstimator):
         return X, y, w
 
     def _layout(self, X):
-        return _layout(X, self.spec, self.lam_delta, self.beta_fixed)
+        return _layout(X, self.spec, self.lam_delta, self.beta_fixed, self.prior_offset,
+                       self.free_prior_scale)
 
     def _moments(self, layout, y, w):
         return Moments(layout, y, w, self._season_cols(), self._scale())
@@ -327,6 +351,9 @@ class MixedModelRAPM(RegressorMixin, BaseEstimator):
             self.cov_beta_ = self.cov_theta_[bs, bs]
         self.gamma_ = sol.theta_f[layout.f_slice]
         self.gamma_se_ = se[layout.f_slice]
+        # how far the fit chose to trust each side's box prior; None unless free_prior_scale
+        self.prior_scale_ = sol.theta_f[:layout.n_scale] if layout.n_scale else None
+        self.prior_scale_se_ = se[:layout.n_scale] if layout.n_scale else None
         ds = layout.delta_slice
         if self.beta_fixed is not None and len(np.asarray(self.beta_fixed)) == 4 * nf:
             self.delta_ = np.asarray(self.beta_fixed, dtype=float)[2 * nf:]
@@ -437,7 +464,8 @@ class MixedModelRAPMCV(MixedModelRAPM):
     """
 
     def __init__(self, lams=(100.0, 300.0, 1000.0, 3000.0, 10000.0), cv=5, selection="reml_in_band", lam_ratio=1.0,
-                 lam_buckets=None, lam_delta=None, beta_fixed=None, spec=None):
+                 lam_buckets=None, lam_delta=None, beta_fixed=None, prior_offset=None, spec=None,
+                 free_prior_scale=False):
         self.lams = lams
         self.cv = cv
         self.selection = selection
@@ -445,7 +473,9 @@ class MixedModelRAPMCV(MixedModelRAPM):
         self.lam_buckets = lam_buckets
         self.lam_delta = lam_delta
         self.beta_fixed = beta_fixed
+        self.prior_offset = prior_offset
         self.spec = spec
+        self.free_prior_scale = free_prior_scale
 
     def _splitter(self, groups):
         if isinstance(self.cv, int):
@@ -547,6 +577,15 @@ class MixedModelRAPMCV(MixedModelRAPM):
         d_med = float(np.median(starters))
         return 1.0 - np.sqrt(self.lam_ / (self.lam_ + d_med)), d_med
 
+    def shrinkage_diag(self) -> np.ndarray:
+        """Per-Z-column shrinkage diag(G (G+lam I)^-1), the a_i the boosted stage weights by."""
+        check_is_fitted(self, "moments_")
+        Vs, ds, _, _ = self.moments_.eig()
+        out = np.zeros(len(self.u_))
+        for cols, V, d in zip(self.spec.season_cols(), Vs, ds):
+            out[cols] = np.einsum("ij,j,ij->i", V, d / (d + self.lam_), V)
+        return out
+
     def shrinkage_table(self, buckets=((0, 500), (500, 1500), (1500, np.inf))):
         """Per-player shrinkage diag(G (G+lam I)^-1) and the naive n/(n+lam), by season and possession bucket."""
         check_is_fitted(self, "moments_")
@@ -565,7 +604,8 @@ class MixedModelRAPMCV(MixedModelRAPM):
                     if m.sum() == 0:
                         continue
                     lam_side = lam * (c[cols][sl][m] ** -2)
-                    rows.append(dict(season=spec.seasons[s], side=side, bucket=f"[{lo},{hi})", n_players=int(m.sum()),
+                    label = "window" if spec.player_unit == "window" else spec.seasons[s]
+                    rows.append(dict(season=label, side=side, bucket=f"[{lo},{hi})", n_players=int(m.sum()),
                                      shrink_mean=float(a[sl][m].mean()), shrink_p10=float(np.percentile(a[sl][m], 10)),
                                      shrink_p90=float(np.percentile(a[sl][m], 90)),
                                      naive_mean=float((n_i[sl][m] / (n_i[sl][m] + lam_side)).mean())))

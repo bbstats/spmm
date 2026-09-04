@@ -136,11 +136,11 @@ class BoxExposure(BaseEstimator, TransformerMixin):
 
     def _table(self, feats):
         """Merged per-(game, player-season) counts and possessions for RS games."""
-        gp = self.game_poss[["game_idx", "ps_idx", "poss_off", "poss_def"]]
-        gb = self.game_box[["game_idx", "ps_idx", "phase"] + feats]
+        gp = self.game_poss[["game_idx", "psx_idx", "poss_off", "poss_def"]]
+        gb = self.game_box[["game_idx", "psx_idx", "phase"] + feats]
         rs_games = np.unique(gb.loc[gb["phase"] == "RS", "game_idx"].to_numpy())
         gb = gb[gb["phase"] == "RS"].drop(columns="phase")
-        tab = gp.merge(gb, on=["game_idx", "ps_idx"], how="outer")
+        tab = gp.merge(gb, on=["game_idx", "psx_idx"], how="outer")
         tab[feats] = tab[feats].fillna(0.0)
         tab[["poss_off", "poss_def"]] = tab[["poss_off", "poss_def"]].fillna(0.0)
         return tab, rs_games
@@ -204,14 +204,29 @@ class BoxExposure(BaseEstimator, TransformerMixin):
         tab_cov = tab[is_cov[tab_g]]
 
         g_tr = tab_cov["game_idx"].to_numpy().astype(np.int64)
-        p_tr = tab_cov["ps_idx"].to_numpy().astype(np.int64)
+        x_tr = tab_cov["psx_idx"].to_numpy().astype(np.int64)
         c_tr = tab_cov[feats].to_numpy(dtype=float) if n_feat else np.zeros((len(tab_cov), 0))
         po_tr = tab_cov["poss_off"].to_numpy(dtype=float)
         pd_tr = tab_cov["poss_def"].to_numpy(dtype=float)
         mult = np.ones(len(g_tr)) if self.game_mult is None else np.asarray(self.game_mult, dtype=float)[g_tr]
 
-        C, Po, Po_eff = self._accumulate(n_ps, n_feat, p_tr, c_tr, po_tr, mult)
-        _, Pd, Pd_eff = self._accumulate(n_ps, n_feat, p_tr, c_tr, pd_tr, mult)
+        # per player-season, which is the unit the padding constants are estimated on
+        n_psx = spec.n_psx
+        ps_of_psx = spec.ps_of_psx if spec.ps_of_psx is not None else np.arange(n_psx)
+        season_of_psx = spec.season_of_psx if spec.season_of_psx is not None else spec.season_of_ps
+        Cx, Pox, Pox_eff = self._accumulate(n_psx, n_feat, x_tr, c_tr, po_tr, mult)
+        _, Pdx, Pdx_eff = self._accumulate(n_psx, n_feat, x_tr, c_tr, pd_tr, mult)
+        self.psx_totals_, self.psx_poss_off_, self.psx_poss_def_ = Cx, Pox, Pdx
+        self.ps_of_psx_, self.season_of_psx_ = ps_of_psx, season_of_psx
+
+        # per Z unit, summing the player-seasons that belong to it
+        def to_ps(v):
+            out = np.zeros((n_ps,) + v.shape[1:])
+            np.add.at(out, ps_of_psx, v)
+            return out
+
+        C, Po, Pd = to_ps(Cx), to_ps(Pox), to_ps(Pdx)
+        Po_eff, Pd_eff = to_ps(Pox_eff), to_ps(Pdx_eff)
         self.totals_ = C
         self.poss_off_ = Po
         self.poss_def_ = Pd
@@ -225,16 +240,16 @@ class BoxExposure(BaseEstimator, TransformerMixin):
         else:
             L = np.zeros((n_seasons, n_feat))
             for s in range(n_seasons):
-                m = spec.season_of_ps == s
-                denom = Po[m].sum()
-                L[s] = 100.0 * C[m].sum(0) / denom if denom > 0 else 0.0
+                m = season_of_psx == s
+                denom = Pox[m].sum()
+                L[s] = 100.0 * Cx[m].sum(0) / denom if denom > 0 else 0.0
         self.league_rates_ = L
 
         # padding constants from the covariate games
         if "pad_k" in fixed:
             k = np.asarray(fixed["pad_k"], dtype=float)
         elif isinstance(self.pad_k, str) and self.pad_k == "auto":
-            k, s2, t2, npl = split_half_k(p_tr, g_tr, c_tr, po_tr, spec.season_of_ps, n_seasons, self.min_half_poss)
+            k, s2, t2, npl = split_half_k(x_tr, g_tr, c_tr, po_tr, season_of_psx, n_seasons, self.min_half_poss)
             self.k_sigma2_within_ = s2
             self.k_tau2_between_ = t2
             self.k_n_players_ = npl
@@ -253,31 +268,47 @@ class BoxExposure(BaseEstimator, TransformerMixin):
             self.pad_bins_ = fixed["bins"]
             self.pad_target_ = fixed.get("target")
         elif self.pad_target == "poss_conditional" and n_feat:
-            self.pad_bins_, self.pad_target_ = self._fit_target_bins(C, Po, spec.season_of_ps, n_seasons, n_feat, L)
+            self.pad_bins_, self.pad_target_ = self._fit_target_bins(Cx, Pox, season_of_psx, n_seasons, n_feat, L,
+                                                                     P_bins=Po[ps_of_psx])
         else:
             self.pad_bins_, self.pad_target_ = None, None
 
         # LOO lookup (only used in loo mode): sorted composite key game*n_ps + ps
-        key = g_tr * n_ps + p_tr
+        key = g_tr * n_ps + ps_of_psx[x_tr]
         order = np.argsort(key)
         self.loo_keys_ = key[order]
         self.loo_counts_ = c_tr[order]
         self.loo_poss_off_ = po_tr[order]
         self.loo_poss_def_ = pd_tr[order]
 
-        # padded covariate rates (one number per player-season) and full-season rates for reporting
-        self.rates_ = self._pad(C, Po, spec.season_of_ps, Po_eff)
-        self.rates_d_ = self._pad(C, Pd, spec.season_of_ps, Pd_eff)
+        # One k and one target per Z unit: the player's own possession-weighted blend of the
+        # per-season constants, so k stays a per-season measurement property and the target keeps
+        # tracking league drift inside the window.
+        self.pad_k_ps_ = self._blend(self.pad_k_[season_of_psx], Pox, ps_of_psx, n_ps)
+        self.pad_k_ps_d_ = self._blend(self.pad_k_[season_of_psx], Pdx, ps_of_psx, n_ps)
+        Tx = self._target_psx(Po, season_of_psx, ps_of_psx)
+        Txd = self._target_psx(Pd, season_of_psx, ps_of_psx)
+        self.target_ps_ = self._blend(Tx, Pox, ps_of_psx, n_ps)
+        self.target_ps_d_ = self._blend(Txd, Pdx, ps_of_psx, n_ps)
+
+        # padded covariate rates, one number per Z unit, plus full-window rates for reporting
+        self.rates_ = self._pad_ps(C, Po, Po_eff, self.pad_k_ps_, self.target_ps_)
+        self.rates_d_ = self._pad_ps(C, Pd, Pd_eff, self.pad_k_ps_d_, self.target_ps_d_)
         if self.mode == "crossfit":
             all_rs = tab[np.isin(tab_g, rs_games)]
-            p_all = all_rs["ps_idx"].to_numpy().astype(np.int64)
+            p_all = all_rs["psx_idx"].to_numpy().astype(np.int64)
             c_all = all_rs[feats].to_numpy(dtype=float) if n_feat else np.zeros((len(all_rs), 0))
             m_all = np.ones(len(p_all)) if self.game_mult is None else np.asarray(self.game_mult, dtype=float)[all_rs["game_idx"].to_numpy().astype(np.int64)]
-            Cs, Pos, Pos_eff = self._accumulate(n_ps, n_feat, p_all, c_all, all_rs["poss_off"].to_numpy(dtype=float), m_all)
-            _, Pds, Pds_eff = self._accumulate(n_ps, n_feat, p_all, c_all, all_rs["poss_def"].to_numpy(dtype=float), m_all)
+            Cxs, Poxs, _ = self._accumulate(n_psx, n_feat, p_all, c_all, all_rs["poss_off"].to_numpy(dtype=float), m_all)
+            _, Pdxs, _ = self._accumulate(n_psx, n_feat, p_all, c_all, all_rs["poss_def"].to_numpy(dtype=float), m_all)
+            Cs, Pos, Pds = to_ps(Cxs), to_ps(Poxs), to_ps(Pdxs)
             self.season_totals_, self.season_poss_off_, self.season_poss_def_ = Cs, Pos, Pds
-            self.season_rates_ = self._pad(Cs, Pos, spec.season_of_ps, Pos_eff)
-            self.season_rates_d_ = self._pad(Cs, Pds, spec.season_of_ps, Pds_eff)
+            ko = self._blend(self.pad_k_[season_of_psx], Poxs, ps_of_psx, n_ps)
+            kd = self._blend(self.pad_k_[season_of_psx], Pdxs, ps_of_psx, n_ps)
+            self.season_rates_ = self._pad_ps(
+                Cs, Pos, Pos, ko, self._blend(self._target_psx(Pos, season_of_psx, ps_of_psx), Poxs, ps_of_psx, n_ps))
+            self.season_rates_d_ = self._pad_ps(
+                Cs, Pds, Pds, kd, self._blend(self._target_psx(Pds, season_of_psx, ps_of_psx), Pdxs, ps_of_psx, n_ps))
         else:
             self.season_totals_, self.season_poss_off_, self.season_poss_def_ = C, Po, Pd
             self.season_rates_ = self.rates_
@@ -293,14 +324,49 @@ class BoxExposure(BaseEstimator, TransformerMixin):
             self.means_d_ = (wgt[:, None] * Xd).sum(0) / wgt.sum()
         return self
 
-    def _fit_target_bins(self, C, P, season_of, n_seasons, n_feat, league):
+    @staticmethod
+    def _blend(v_psx, w_psx, ps_of_psx, n_ps):
+        """Possession-weighted average of a per-player-season quantity, down to the Z unit."""
+        num = np.zeros((n_ps, v_psx.shape[1]))
+        den = np.zeros(n_ps)
+        np.add.at(num, ps_of_psx, v_psx * w_psx[:, None])
+        np.add.at(den, ps_of_psx, w_psx)
+        cnt = np.zeros((n_ps, v_psx.shape[1]))
+        np.add.at(cnt, ps_of_psx, v_psx)
+        n = np.zeros(n_ps)
+        np.add.at(n, ps_of_psx, 1.0)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            out = np.where(den[:, None] > 0, num / np.where(den > 0, den, 1.0)[:, None],
+                           cnt / np.maximum(n, 1.0)[:, None])
+        return out
+
+    def _target_psx(self, P_ps, season_of_psx, ps_of_psx):
+        """(n_psx, n_feat) padding target: the season's level, in the bin set by the Z unit's size."""
+        if self.pad_bins_ is None or self.pad_target_ is None:
+            return self.league_rates_[season_of_psx]
+        b = np.clip(np.searchsorted(self.pad_bins_, P_ps[ps_of_psx], side="right") - 1,
+                    0, self.pad_target_.shape[1] - 1)
+        return self.pad_target_[season_of_psx, b]
+
+    @staticmethod
+    def _pad_ps(C, P, n_eff, k, target):
+        """(n_eff * rate + k * target) / (n_eff + k), with one k and one target per Z unit."""
+        pos = P > 0
+        with np.errstate(divide="ignore", invalid="ignore"):
+            rate = np.where(pos[:, None], 100.0 * C / np.where(pos, P, 1.0)[:, None], 0.0)
+        n = n_eff[:, None]
+        denom = n + k
+        return np.where(denom > 0, (n * rate + k * target) / np.where(denom > 0, denom, 1.0), target)
+
+    def _fit_target_bins(self, C, P, season_of, n_seasons, n_feat, league, P_bins=None):
         """Possession-conditional padding target: league mean within log-spaced possession bins."""
         ok = P > 0
         if ok.sum() < 5 * N_PAD_BINS:
             return None, None
-        lo, hi = np.log(np.maximum(np.percentile(P[ok], 1), 1.0)), np.log(P[ok].max())
+        Pb = P if P_bins is None else P_bins
+        lo, hi = np.log(np.maximum(np.percentile(Pb[ok], 1), 1.0)), np.log(Pb[ok].max())
         edges = np.r_[0.0, np.exp(np.linspace(lo, hi, N_PAD_BINS + 1))[1:-1], np.inf]
-        b_of = np.clip(np.searchsorted(edges, P, side="right") - 1, 0, N_PAD_BINS - 1)
+        b_of = np.clip(np.searchsorted(edges, Pb, side="right") - 1, 0, N_PAD_BINS - 1)
         pooled = np.zeros((N_PAD_BINS, n_feat))
         for b in range(N_PAD_BINS):
             m = ok & (b_of == b)
@@ -348,7 +414,9 @@ class BoxExposure(BaseEstimator, TransformerMixin):
             idx = pos_c[found]
             C[found] -= self.loo_counts_[idx]
             P[found] -= (self.loo_poss_off_ if side == "O" else self.loo_poss_def_)[idx]
-        return self._pad(C, P, self.spec.season_of_ps[ps])
+        k = (self.pad_k_ps_ if side == "O" else self.pad_k_ps_d_)[ps]
+        t = (self.target_ps_ if side == "O" else self.target_ps_d_)[ps]
+        return self._pad_ps(C, P, P, k, t)
 
     def _exposures(self, X, game_idx):
         n_feat = len(self.feature_names_)

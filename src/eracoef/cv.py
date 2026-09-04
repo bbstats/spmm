@@ -41,16 +41,18 @@ def make_exposure(wd: WindowData, features=None, mode="crossfit", half="A", **kw
 
 def make_pipeline(wd: WindowData, lams=None, lam=None, cv=5, features=None, lam_ratio=1.0, lam_buckets=None,
                   lam_delta=None, beta_fixed=None, mode="crossfit", half="A", selection="reml_in_band",
-                  **exposure_kw) -> Pipeline:
+                  prior_offset=None, free_prior_scale=False, **exposure_kw) -> Pipeline:
     """Pipeline of BoxExposure -> MixedModelRAPMCV (if `lams`) or MixedModelRAPM (fixed `lam`)."""
     exp = make_exposure(wd, features=features, mode=mode, half=half, **exposure_kw)
     if lams is not None:
         mm = MixedModelRAPMCV(lams=list(lams), cv=cv, selection=selection, lam_ratio=lam_ratio, lam_buckets=lam_buckets,
-                              lam_delta=lam_delta, beta_fixed=beta_fixed, spec=wd.spec)
+                              lam_delta=lam_delta, beta_fixed=beta_fixed, prior_offset=prior_offset, spec=wd.spec,
+                              free_prior_scale=free_prior_scale)
         mm.set_fit_request(sample_weight=True, groups=True)
     else:
         mm = MixedModelRAPM(lam=lam, lam_ratio=lam_ratio, lam_buckets=lam_buckets, lam_delta=lam_delta,
-                            beta_fixed=beta_fixed, spec=wd.spec)
+                            beta_fixed=beta_fixed, prior_offset=prior_offset, spec=wd.spec,
+                            free_prior_scale=free_prior_scale)
         mm.set_fit_request(sample_weight=True)
     mm.set_score_request(sample_weight=True)
     return Pipeline([("exposure", exp), ("mm", mm)])
@@ -208,9 +210,14 @@ def crossfit_beta(wd: WindowData, lam=None, lams=None, cv=5, lam_ratio=1.0, lam_
 
 
 def plugin_fit(wd: WindowData, beta, lam=None, lams=None, cv=5, lam_ratio=1.0, lam_buckets=None, lam_delta=None,
-               features=None, mask=None, selection="reml_in_band", **exposure_kw) -> Pipeline:
-    """Ratings fit: beta plugged in, u (and F) fit on all rows with full-season padded rates."""
+               features=None, mask=None, selection="reml_in_band", prior_offset=None,
+               free_prior_scale=False, **exposure_kw) -> Pipeline:
+    """Ratings fit: beta plugged in, u (and F) fit on all rows with full-season padded rates.
+
+    `prior_offset` is the per-Z-column boost from LRBoost, in raw sign, added to the linear box term.
+    """
     pipe = make_pipeline(wd, lams=lams, lam=lam, cv=cv, features=features, lam_ratio=lam_ratio, lam_buckets=lam_buckets,
                          lam_delta=lam_delta, beta_fixed=np.asarray(beta, dtype=float), mode="full",
-                         selection=selection, **exposure_kw)
+                         selection=selection, prior_offset=prior_offset,
+                         free_prior_scale=free_prior_scale, **exposure_kw)
     return fit_pipeline(pipe, wd, mask)

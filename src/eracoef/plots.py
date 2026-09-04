@@ -63,8 +63,11 @@ def load(cfg) -> dict:
 
 
 # ---------------------------------------------------------------- interactive figure
-def interactive_coefs(data: dict, path: Path, cfg=None) -> Path:
-    """One Plotly page: tab buttons pick the metric, traces show O and D across the windows."""
+def interactive_coefs(data: dict, cfg=None):
+    """The coefficient figure: tab buttons pick the metric, traces show O and D across the windows.
+
+    Returns (plot div, index) for composing into the single page that site.build writes.
+    """
     import plotly.graph_objects as go
 
     c = data["coefs"]
@@ -176,121 +179,7 @@ def interactive_coefs(data: dict, path: Path, cfg=None) -> Path:
     html = fig.to_html(full_html=False, include_plotlyjs="cdn", div_id="coefs",
                        config=dict(displaylogo=False, responsive=True,
                                    modeBarButtonsToRemove=["select2d", "lasso2d", "autoScale2d"]))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_page(html, idx), encoding="utf-8")
-    return path
-
-
-def _page(plot_html: str, idx: dict) -> str:
-    import json
-    return f"""<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NBA box-score coefficients across eras</title>
-<style>
-  :root {{ color-scheme: light; --surface:{LIGHT['surface']}; --text:{LIGHT['text']};
-           --text2:{LIGHT['text2']}; --grid:{LIGHT['grid']}; --t:{LIGHT['t']}; --o:{LIGHT['o']}; --d:{LIGHT['d']}; }}
-  :root[data-theme="dark"] {{ color-scheme: dark; --surface:{DARK['surface']}; --text:{DARK['text']};
-           --text2:{DARK['text2']}; --grid:{DARK['grid']}; --t:{DARK['t']}; --o:{DARK['o']}; --d:{DARK['d']}; }}
-  @media (prefers-color-scheme: dark) {{
-    :root:not([data-theme="light"]) {{ color-scheme: dark; --surface:{DARK['surface']}; --text:{DARK['text']};
-           --text2:{DARK['text2']}; --grid:{DARK['grid']}; --t:{DARK['t']}; --o:{DARK['o']}; --d:{DARK['d']}; }} }}
-  body {{ margin:0; background:var(--surface); color:var(--text); font-family:{FONT};
-          -webkit-font-smoothing:antialiased; }}
-  .wrap {{ max-width:1120px; margin:0 auto; padding:32px 24px 56px; }}
-  h1 {{ font-size:26px; line-height:1.25; margin:0 0 10px; font-weight:600; letter-spacing:-0.015em; }}
-  p.sub {{ color:var(--text2); font-size:15px; line-height:1.55; margin:0 0 4px; max-width:72ch; }}
-  .key {{ display:flex; gap:20px; align-items:center; flex-wrap:wrap; margin:20px 0 4px;
-          color:var(--text2); font-size:13px; }}
-  .key span {{ display:inline-flex; align-items:center; gap:7px; }}
-  .dot {{ width:11px; height:11px; border-radius:50%; display:inline-block; }}
-  .bar {{ display:inline-block; width:22px; height:0; }}
-  footer {{ color:var(--text2); font-size:13.5px; line-height:1.6; margin-top:10px; max-width:78ch; }}
-  footer p {{ margin:0 0 10px; }}
-  a {{ color:var(--t); }}
-  button.theme {{ float:right; background:transparent; color:var(--text2); border:1px solid var(--grid);
-      border-radius:7px; padding:6px 12px; font-size:12px; cursor:pointer; font-family:inherit; }}
-  button.theme:hover {{ color:var(--text); }}
-  details {{ margin-top:26px; }}
-  summary {{ cursor:pointer; color:var(--text2); font-size:13.5px; margin-bottom:10px; }}
-</style></head><body>
-<div class="wrap">
-<button class="theme" id="themeBtn" aria-label="Toggle dark mode">Dark</button>
-<h1>What the box score has been worth, 1997&ndash;2026</h1>
-<p class="sub">Each coefficient is the points per 100 possessions that one unit per 100 of that
-box-score stat is worth, holding the other twelve fixed. Estimated per three-season window by
-mixed-model RAPM: the box score enters as unpenalized fixed effects beside ridge-penalized
-player-season offense and defense effects, fit jointly. The defensive side is flipped so positive
-is good on both. Bands are 95%.</p>
-<div class="key">
-  <span><i class="dot" style="background:var(--t)"></i> Total</span>
-  <span><i class="dot" style="background:var(--o)"></i> Offense</span>
-  <span><i class="dot" style="background:var(--d)"></i> Defense</span>
-  <span>pick a stat above; the legend adds offense, defense, rolling windows,
-        &lambda;&times;3 / &divide;3 and the playoffs</span>
-</div>
-{plot_html}
-<details open><summary>How to read it</summary>
-<footer>
-<p><b>Held equal is doing work.</b> Three-point makes and misses correlate at 0.96 across players,
-so nobody moves one without the other. A coefficient is the value of that stat given the rest of a
-player's profile, not the value of a shot in isolation.</p>
-<p><b>Defense means the defender's own rate.</b> &ldquo;BLK, defense&rdquo; is a player's own block
-rate predicting how well his team defends with him on the floor, not blocks he allows.</p>
-<p><b>The prior never sees the stints it is fit on.</b> Each season's games are split in half, and
-the coefficients fit on one half use box-score rates computed only from the other. Full-season rates
-inflate the three-point coefficient by more than seven standard errors, so this matters.</p>
-<p><b>Standard errors are the model's</b>, and about 10% conservative against a game-level Bayesian
-bootstrap. &lambda; is fixed across every window so it cannot manufacture drift; &lambda;&times;3 and
-&divide;3 show what a threefold change in shrinkage would do.</p>
-<p>Data, code and the coefficient tables as CSV:
-<a href="https://github.com/bbstats/spmm">github.com/bbstats/spmm</a>.</p>
-</footer></details>
-</div>
-<script>
-const IDX = {json.dumps(idx)};
-const L = {json.dumps(LIGHT)}, D = {json.dumps(DARK)};
-function rgba(hex, a) {{
-  const h = hex.slice(1);
-  return `rgba(${{parseInt(h.slice(0,2),16)}},${{parseInt(h.slice(2,4),16)}},${{parseInt(h.slice(4,6),16)}},${{a}})`;
-}}
-function paint(mode) {{
-  const t = mode === "dark" ? D : L, gd = document.getElementById("coefs");
-  if (!gd || !window.Plotly) return;
-  Plotly.relayout(gd, {{
-    "paper_bgcolor": t.surface, "plot_bgcolor": t.surface, "font.color": t.text,
-    "title.font.color": t.text, "xaxis.gridcolor": t.grid, "yaxis.gridcolor": t.grid,
-    "xaxis.linecolor": t.grid, "yaxis.linecolor": t.grid, "xaxis.tickcolor": t.grid,
-    "yaxis.tickcolor": t.grid, "xaxis.tickfont.color": t.text2, "yaxis.tickfont.color": t.text2,
-    "xaxis.title.font.color": t.text2, "yaxis.title.font.color": t.text2,
-    "yaxis.zerolinecolor": t.zero, "legend.font.color": t.text2,
-    "updatemenus[0].bgcolor": t.surface, "updatemenus[0].bordercolor": t.grid,
-    "updatemenus[0].font.color": t.text2, "annotations[0].font.color": t.text2
-  }});
-  for (const [side, key] of [["Total","t"],["O","o"],["D","d"]]) {{
-    Plotly.restyle(gd, {{"line.color": t[key], "marker.color": t[key],
-                         "marker.line.color": t.surface}}, IDX[side]);
-    Plotly.restyle(gd, {{"fillcolor": rgba(t[key], 0.16)}}, IDX["ribbon_" + side]);
-    if (IDX["ribbon_faint_" + side])
-      Plotly.restyle(gd, {{"fillcolor": rgba(t[key], 0.10)}}, IDX["ribbon_faint_" + side]);
-  }}
-}}
-function whenReady(fn) {{
-  const gd = document.getElementById("coefs");
-  if (window.Plotly && gd && gd._fullLayout) fn();
-  else setTimeout(() => whenReady(fn), 60);
-}}
-const btn = document.getElementById("themeBtn");
-function setTheme(m) {{
-  document.documentElement.dataset.theme = m;
-  btn.textContent = m === "dark" ? "Light" : "Dark";
-  whenReady(() => paint(m));
-}}
-btn.addEventListener("click", () =>
-  setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"));
-if (window.matchMedia("(prefers-color-scheme: dark)").matches) setTheme("dark");
-</script>
-</body></html>"""
+    return html, idx
 
 
 # ---------------------------------------------------------------- static figures
@@ -475,78 +364,4 @@ def movers_png(data: dict, path: Path, side="Total", top=13) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
-    return path
-
-
-# ---------------------------------------------------------------- landing page
-def index_page(path: Path, figs: list) -> Path:
-    """A small landing page for GitHub Pages: the interactive figure plus the static ones."""
-    cards = "\n".join(
-        f'<figure><img src="img/{name}" alt="{alt}" loading="lazy"><figcaption>{cap}</figcaption></figure>'
-        for name, alt, cap in figs)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"""<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NBA box-score coefficients across eras</title>
-<meta name="description" content="How the mapping from box score to on-court impact changed from 1996-97 to 2025-26, estimated by mixed-model RAPM.">
-<style>
-  :root {{ color-scheme: light; --surface:{LIGHT['surface']}; --text:{LIGHT['text']};
-           --text2:{LIGHT['text2']}; --grid:{LIGHT['grid']}; --t:{LIGHT['t']}; --o:{LIGHT['o']}; --d:{LIGHT['d']}; }}
-  :root[data-theme="dark"] {{ color-scheme: dark; --surface:{DARK['surface']}; --text:{DARK['text']};
-           --text2:{DARK['text2']}; --grid:{DARK['grid']}; --t:{DARK['t']}; --o:{DARK['o']}; --d:{DARK['d']}; }}
-  @media (prefers-color-scheme: dark) {{ :root:not([data-theme="light"]) {{ color-scheme: dark;
-           --surface:{DARK['surface']}; --text:{DARK['text']}; --text2:{DARK['text2']};
-           --grid:{DARK['grid']}; --t:{DARK['t']}; --o:{DARK['o']}; --d:{DARK['d']}; }} }}
-  body {{ margin:0; background:var(--surface); color:var(--text); font-family:{FONT};
-          -webkit-font-smoothing:antialiased; line-height:1.55; }}
-  .wrap {{ max-width:900px; margin:0 auto; padding:40px 24px 72px; }}
-  h1 {{ font-size:30px; line-height:1.2; margin:0 0 10px; font-weight:600; letter-spacing:-0.015em; }}
-  h2 {{ font-size:19px; margin:44px 0 6px; font-weight:600; letter-spacing:-0.01em; }}
-  p {{ color:var(--text2); font-size:15.5px; max-width:70ch; margin:0 0 12px; }}
-  a {{ color:var(--t); }}
-  .cta {{ display:inline-block; margin:18px 0 6px; padding:11px 18px; border:1px solid var(--grid);
-          border-radius:9px; text-decoration:none; color:var(--text); font-size:15px; font-weight:500; }}
-  .cta:hover {{ border-color:var(--t); }}
-  figure {{ margin:26px 0 8px; }}
-  img {{ width:100%; height:auto; border-radius:8px; }}
-  figcaption {{ color:var(--text2); font-size:13.5px; margin-top:8px; }}
-  ul {{ color:var(--text2); font-size:15px; max-width:70ch; padding-left:20px; }}
-  li {{ margin-bottom:8px; }}
-  button.theme {{ float:right; background:transparent; color:var(--text2); border:1px solid var(--grid);
-      border-radius:7px; padding:6px 12px; font-size:12px; cursor:pointer; font-family:inherit; }}
-</style></head><body><div class="wrap">
-<button class="theme" id="t">Dark</button>
-<h1>What the box score has been worth, 1997&ndash;2026</h1>
-<p>Thirty seasons of play-by-play, turned into stints, turned into one ridge regression per
-three-season window. The box score enters as unpenalized fixed effects beside ridge-penalized
-player-season offense and defense effects, fit jointly by Henderson's mixed model equations, so the
-coefficients land on the same scale as on-court impact: points per 100 possessions per unit per 100.
-The defensive side is flipped so positive is good on both.</p>
-<a class="cta" href="coefs.html">Open the interactive figure &rarr;</a>
-{cards}
-<h2>Method, briefly</h2>
-<ul>
-<li><b>Data.</b> Every regular-season and playoff game from 1996-97 to 2025-26, reconstructed from
-stats.nba.com play-by-play into possessions with the ten players on the floor. Points reconcile to
-the box score in every game, and 99.9% of possessions have five players a side.</li>
-<li><b>Cross-fitted rates.</b> Each season's games are split in half. The coefficients fit on one
-half use box-score rates computed only from the other, so a coefficient never sees the box score of
-the stints it is fit on. Using full-season rates inflates the three-point coefficient by more than
-seven standard errors.</li>
-<li><b>One &lambda; for the whole era</b>, chosen once on two windows by cross-validation and REML,
-so shrinkage cannot manufacture drift. &lambda;&times;3 and &divide;3 are on the figure.</li>
-<li><b>Standard errors</b> are the model's, about 10% conservative against a game-level Bayesian
-bootstrap.</li>
-</ul>
-<h2>Everything else</h2>
-<p>Code, coefficient tables as CSV, per-season data diagnostics and the checkpoint logs:
-<a href="https://github.com/bbstats/spmm">github.com/bbstats/spmm</a>.</p>
-<script>
-const b=document.getElementById("t");
-function set(m) {{ document.documentElement.dataset.theme=m; b.textContent = m==="dark" ? "Light" : "Dark"; }}
-b.onclick=() => set(document.documentElement.dataset.theme==="dark" ? "light" : "dark");
-if (matchMedia("(prefers-color-scheme: dark)").matches) set("dark");
-</script>
-</div></body></html>""", encoding="utf-8")
     return path

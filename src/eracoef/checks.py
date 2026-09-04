@@ -114,7 +114,7 @@ def leakage_inputs(wd: WindowData, truth: dict, mask=None) -> pd.DataFrame:
         games = np.unique(wd.rows["game_idx"].to_numpy()[mask])
         gp = gp[np.isin(gp["game_idx"], games)]
     P = np.zeros(wd.spec.n_ps)
-    np.add.at(P, gp["ps_idx"].to_numpy(), gp["poss_off"].to_numpy())
+    np.add.at(P, wd.spec.ps_of_psx[gp["psx_idx"].to_numpy()], gp["poss_off"].to_numpy())
     rows = []
     for f in truth["features"]:
         mu = t[f"rate_{f}"].to_numpy()
@@ -202,13 +202,23 @@ def _wls(Xm, y, w):
 
 def calibration_slopes(wd: WindowData, lam, lam_ratio=1.0, lam_buckets=None, n_folds=5, buckets=(0, 500, 1500, np.inf),
                        features=None, pad_k="auto", pad_scale=1.0, lam_delta=None, mode="full", verbose=False,
-                       lam_half=None, eval_rows=None, **exposure_kw) -> pd.DataFrame:
+                       lam_half=None, eval_rows=None, prior_offset=None, controls=True,
+                       **exposure_kw) -> pd.DataFrame:
     """OOS calibration: regress y - F gamma on the O/D prediction components, weighted by possessions.
 
     mode="crossfit": beta from the two half-fits on the training games, then u from a plug-in fit on all
     training rows with full-season rates.  mode="full"/"loo": one joint fit on the training rows.
     Slopes are reported for the prior alone (rates x beta), the full EBLUP (prior + u), and jointly for
     [prior, u] (the u slope isolates the ridge), by side and by the possession bucket of the players involved.
+
+    `controls` adds `Z @ in_bucket` headcount columns to every regression.  Without them the low
+    bucket regressor is driven as much by HOW MANY bench players are on the floor as by which ones,
+    and that headcount tracks the outcome through blowouts, injuries and tanking; it drags the low
+    bucket slope down by about a third.
+
+    `prior_offset` is the LRBoost correction, one entry per Z column in raw sign.  It joins the prior,
+    not u, so the slopes score the boosted prior rather than the linear one.  Pass a vector fit
+    WITHOUT this window in it, or the held-out games leak in through the boosters training target.
     """
     spec = wd.spec
     m = spec.n_ps
@@ -222,7 +232,8 @@ def calibration_slopes(wd: WindowData, lam, lam_ratio=1.0, lam_buckets=None, n_f
                                features=features, pad_k=pad_k, pad_scale=pad_scale, lam_delta=lam_delta, mask=tr_mask,
                                **exposure_kw)
             pipe = plugin_fit(wd, cf.beta_, lam=lam, lam_ratio=lam_ratio, lam_buckets=lam_buckets, features=features,
-                              pad_k=pad_k, pad_scale=pad_scale, lam_delta=lam_delta, mask=tr_mask, **exposure_kw)
+                              pad_k=pad_k, pad_scale=pad_scale, lam_delta=lam_delta, mask=tr_mask,
+                              prior_offset=prior_offset, **exposure_kw)
             cov_beta = cf.cov_beta_
         else:
             pipe = make_pipeline(wd, lam=lam, lam_ratio=lam_ratio, lam_buckets=lam_buckets, features=features,
@@ -236,6 +247,10 @@ def calibration_slopes(wd: WindowData, lam, lam_ratio=1.0, lam_buckets=None, n_f
         rates_o, rates_d = exp.rates_, exp.rates_d_          # what transform uses for held-out rows
         pri_O = rates_o @ mm.beta_[:nf] if nf else np.zeros(m)
         pri_D = rates_d @ mm.beta_[nf:] if nf else np.zeros(m)
+        if prior_offset is not None:
+            po = np.asarray(prior_offset, dtype=float)
+            pri_O = pri_O + po[:m]
+            pri_D = pri_D + po[m:]
         u_O, u_D = mm.u_[:m], mm.u_[m:]
         poss = exp.poss_off_
         Xte = wd.X[te]
@@ -251,6 +266,8 @@ def calibration_slopes(wd: WindowData, lam, lam_ratio=1.0, lam_buckets=None, n_f
             cols[f"u_D_{b}"] = ZD @ (u_D * mask)
             cols[f"eblup_O_{b}"] = cols[f"prior_O_{b}"] + cols[f"u_O_{b}"]
             cols[f"eblup_D_{b}"] = cols[f"prior_D_{b}"] + cols[f"u_D_{b}"]
+            cols[f"n_O_{b}"] = ZO @ mask          # headcount of this bucket on the floor
+            cols[f"n_D_{b}"] = ZD @ mask
         # expected attenuation of the prior's slope from beta estimation noise: x' Cov(beta) x per row
         if nf:
             XO = ZO @ rates_o; XD = ZD @ rates_d
@@ -284,6 +301,9 @@ def calibration_slopes(wd: WindowData, lam, lam_ratio=1.0, lam_buckets=None, n_f
         mu = np.sum(wv * x) / wv.sum()
         return np.sum(wv * (x - mu) ** 2) / wv.sum()
 
+    ctrl = (np.column_stack([df[f"n_{s}_{b}"].to_numpy() for s in ("O", "D") for b in range(nb)])
+            if controls else np.zeros((len(df), 0)))
+
     def _fold_slopes(Xm):
         return np.asarray([_wls(Xm[fold_of == k], yv[fold_of == k], wv[fold_of == k]) for k in range(n_folds)])
 
@@ -291,7 +311,7 @@ def calibration_slopes(wd: WindowData, lam, lam_ratio=1.0, lam_buckets=None, n_f
     for kind in ("prior", "eblup", "joint"):
         if kind == "joint":
             names = [f"{c}_{s}_{b}" for c in ("prior", "u") for s in ("O", "D") for b in range(nb)]
-            Xm = np.column_stack([df[n].to_numpy() for n in names] + [np.ones(len(df))])
+            Xm = np.column_stack([df[n].to_numpy() for n in names] + [ctrl, np.ones(len(df))])
             sl = _wls(Xm, yv, wv)
             fold_sl = _fold_slopes(Xm)
             for i, n in enumerate(names):
@@ -300,18 +320,18 @@ def calibration_slopes(wd: WindowData, lam, lam_ratio=1.0, lam_buckets=None, n_f
                 out.append(dict(kind=f"joint_{c}", side=side, bucket=f"[{buckets[b]},{buckets[b + 1]})", slope=sl[i],
                                 se=fold_sl[:, i].std(ddof=1) / np.sqrt(n_folds)))
             agg = {f"{c}_{s}": sum(df[f"{c}_{s}_{b}"].to_numpy() for b in range(nb)) for c in ("prior", "u") for s in ("O", "D")}
-            Xa = np.column_stack([agg["prior_O"], agg["prior_D"], agg["u_O"], agg["u_D"], np.ones(len(df))])
+            Xa = np.column_stack([agg["prior_O"], agg["prior_D"], agg["u_O"], agg["u_D"], ctrl, np.ones(len(df))])
             sl = _wls(Xa, yv, wv)
             fold_sl = _fold_slopes(Xa)
             for i, (c, s) in enumerate((("prior", "O"), ("prior", "D"), ("u", "O"), ("u", "D"))):
                 out.append(dict(kind=f"joint_{c}", side=s, bucket="all", slope=sl[i], se=fold_sl[:, i].std(ddof=1) / np.sqrt(n_folds)))
-            Xt = np.column_stack([agg["prior_O"] + agg["prior_D"], agg["u_O"] + agg["u_D"], np.ones(len(df))])
+            Xt = np.column_stack([agg["prior_O"] + agg["prior_D"], agg["u_O"] + agg["u_D"], ctrl, np.ones(len(df))])
             sl = _wls(Xt, yv, wv)
             out.append(dict(kind="joint_prior", side="O+D", bucket="all", slope=sl[0], se=np.nan))
             out.append(dict(kind="joint_u", side="O+D", bucket="all", slope=sl[1], se=np.nan))
             continue
         names = [f"{kind}_{s}_{b}" for s in ("O", "D") for b in range(nb)]
-        Xm = np.column_stack([df[n].to_numpy() for n in names] + [np.ones(len(df))])
+        Xm = np.column_stack([df[n].to_numpy() for n in names] + [ctrl, np.ones(len(df))])
         sl = _wls(Xm, yv, wv)
         fold_sl = _fold_slopes(Xm)
         for i, n in enumerate(names):
@@ -319,7 +339,8 @@ def calibration_slopes(wd: WindowData, lam, lam_ratio=1.0, lam_buckets=None, n_f
             b = int(b)
             out.append(dict(kind=kind, side=side, bucket=f"[{buckets[b]},{buckets[b + 1]})", slope=sl[i],
                             se=fold_sl[:, i].std(ddof=1) / np.sqrt(n_folds)))
-        Xa = np.column_stack([sum(df[f"{kind}_{s}_{b}"].to_numpy() for b in range(nb)) for s in ("O", "D")] + [np.ones(len(df))])
+        Xa = np.column_stack([sum(df[f"{kind}_{s}_{b}"].to_numpy() for b in range(nb)) for s in ("O", "D")]
+                             + [ctrl, np.ones(len(df))])
         sl = _wls(Xa, yv, wv)
         fold_sl = _fold_slopes(Xa)
         for i, s in enumerate(("O", "D")):
@@ -329,7 +350,7 @@ def calibration_slopes(wd: WindowData, lam, lam_ratio=1.0, lam_buckets=None, n_f
                 r["beta_noise_var"] = bn
                 r["expected_slope"] = 1.0 - bn / max(_wvar(Xa[:, i]), 1e-12)
             out.append(r)
-        Xt = np.column_stack([Xa[:, 0] + Xa[:, 1], np.ones(len(df))])
+        Xt = np.column_stack([Xa[:, 0] + Xa[:, 1], ctrl, np.ones(len(df))])
         sl = _wls(Xt, yv, wv)
         r = dict(kind=kind, side="O+D", bucket="all", slope=sl[0], se=np.nan)
         if kind == "prior":
