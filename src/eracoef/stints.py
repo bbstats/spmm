@@ -35,6 +35,49 @@ TIP_RE = re.compile(r"Tip to\s+(.+)$")
 FT_RE = re.compile(r"Free Throw(?: (\w[\w ]*?))? (\d) of (\d)")
 OFFENSIVE_ACTIONS = {"Made Shot", "Missed Shot", "Turnover", "Heave"}
 IGNORED = {"", "Timeout", "Instant Replay", "Violation", "Ejection"}
+SHOT_ACTIONS = ("Made Shot", "Missed Shot", "Heave")
+RIM_FT = 3.0          # feet; at or inside this is the "rim" bucket
+
+# Bumped whenever the stint schema changes.  It is written into the per-season diag frame and
+# checked on load, because the cache is keyed on path existence alone: without this, adding a column
+# leaves every stale file loading happily with the new columns silently absent.
+#   1  the original schema: poss/pts/margin/lineups
+#   2  per-possession counters (POSS_COUNTERS below), for the luck-adjusted target
+STINT_SCHEMA = 2
+
+
+class StaleStintCache(RuntimeError):
+    """A cached stint file predates the current schema and must be rebuilt."""
+
+# Per-possession counters, carried alongside `points` and summed per side into the stints.
+#
+# `att` is an ATTEMPT EVENT, and it is the unit the rebound chain is built on: every field-goal
+# attempt, plus every free-throw trip that is not an and-1.  A shot that draws a shooting foul
+# records no FGA at all, so counting only FGA misses 9% of possessions -- see FINDINGS.md section 14,
+# where this definition reconciles the possession count to 0.25% across 1998, 2005 and 2024 while
+# the box-score convention (FGA only) is out by 9%.
+#
+# Two identities hold exactly, per possession, and are tested in tests/test_stints.py:
+#     points - pts_tech == 2*(fgm - fg3m) + 3*fg3m + ftm
+#     reb_cont - cont_dead + att_retained == att - 1     (whenever the possession reaches an attempt)
+# There are exactly three ways a possession gets an attempt after its first, and the identity names
+# all of them:
+#   reb_cont      it rebounded its own miss (including `oreb_unattr`, where the feed recorded no
+#                 rebound row -- a block or a tip -- but play plainly continued)
+#   att_retained  a flagrant, clear-path or away-from-play foul handed the ball back
+#   cont_dead     subtracts a continuation that led to NO further attempt: rebound your own miss and
+#                 then turn it over, or have the period expire.  Only the last continuation can be
+#                 dead, since between any two rebounds there is necessarily a shot.
+POSS_COUNTERS = (
+    "pts_tech",                                             # technical/deferred FT points
+    "fga", "fgm", "fg3a", "fg3m", "fta", "ftm",             # box-score shooting
+    "fta_tech", "ftm_tech", "fta1", "tov",
+    "att", "and1", "trip_shoot", "trip_ns", "fga_fouled", "att_retained",
+    "reb_chance", "reb_cont", "reb_drop", "cont_dead",      # the rebound chain
+    "oreb_p", "oreb_t", "oreb_unattr",
+    "fga_rim", "fgm_rim", "fga_mid", "fgm_mid", "fga_thr", "fgm_thr",
+    "att1_rim", "att1_mid", "att1_thr", "att1_ft",          # the possession's FIRST attempt only
+)
 
 
 def parse_clock(s: str) -> float:
@@ -118,6 +161,10 @@ class GameParser:
         ev["clock_s"] = ev["clock"].map(parse_clock)
         for c in ("teamId", "personId", "period", "shotValue"):
             ev[c] = pd.to_numeric(ev[c], errors="coerce").fillna(0).astype(int)
+        # shotDistance is 0 on free throws and on any season that does not carry it; the rim/mid
+        # split falls back to the shotValue buckets when it is absent (see _shot_bucket)
+        sd = ev["shotDistance"] if "shotDistance" in ev.columns else -1.0
+        ev["shot_dist"] = pd.to_numeric(pd.Series(sd, index=ev.index), errors="coerce").fillna(-1.0).astype(float)
         for c in ("scoreHome", "scoreAway"):
             ev[c] = pd.to_numeric(ev[c], errors="coerce").fillna(0).astype(int)
         self.ev = ev.reset_index(drop=True)
@@ -265,6 +312,10 @@ class GameParser:
         recs = []
         score = {self.home: 0, self.away: 0}
         pending = {self.home: 0, self.away: 0}
+        # technical free throws taken with no possession in progress: their attempts and makes are
+        # deferred exactly like their points, so the counters stay complete
+        pend_fta = {self.home: 0, self.away: 0}
+        pend_ftm = {self.home: 0, self.away: 0}
         for period, grp in self.ev.groupby("period", sort=True):
             self.diag["n_periods"] += 1
             rows = list(grp.itertuples(index=False))
@@ -278,25 +329,78 @@ class GameParser:
             and1 = False
             start_clock = 720.0 if period <= 4 else 300.0
             start_score = dict(score)
+            # counters for the possession being built, and the small amount of state needed to
+            # resolve them.  Both are mutated in place so `close` needs no extra nonlocals.
+            ct = dict.fromkeys(POSS_COUNTERS, 0)
+            sc = dict(pending_chance=0,      # a miss is waiting to be resolved into a rebound
+                      and1_used=False,       # the deferred and-1 free throw has been seen
+                      cont_team=False,       # the last continuation was a TEAM offensive rebound
+                      att_since_cont=0,      # attempts since that continuation
+                      retain_pending=0,      # a flagrant/clear-path/away-from-play gave the ball back
+                      last_foul_shooting=False)
 
             def close(reason, end_clock, next_offense):
                 nonlocal offense, active, pts, and1, start_clock, start_score
+                # A team offensive rebound with the period expiring before any further attempt did
+                # not continue anything, so it is neither a continuation nor a contested chance.
+                # About 5% of all continuations; dropping it is what takes the possession
+                # reconciliation from 0.7% to 0.004% on 2024 (FINDINGS.md section 14).
+                if ct["reb_cont"] > 0 and sc["att_since_cont"] == 0:
+                    if reason == "period_end" and sc["cont_team"]:
+                        ct["reb_cont"] -= 1
+                        ct["reb_chance"] -= 1
+                        ct["oreb_t"] -= 1
+                        ct["reb_drop"] += 1
+                    else:
+                        ct["cont_dead"] += 1
                 if offense is not None and active:
                     p = pts + pending[offense]
+                    ct["pts_tech"] += pending[offense]
+                    ct["fta_tech"] += pend_fta[offense]
+                    ct["ftm_tech"] += pend_ftm[offense]
                     pending[offense] = 0
+                    pend_fta[offense] = 0
+                    pend_ftm[offense] = 0
                     ok = valid[self.home] and valid[self.away] and len(on[self.home]) == 5 and len(on[self.away]) == 5
                     if not ok:
                         self.diag["invalid_possessions"] += 1
                     recs.append(dict(period=period, offense=offense, points=p, start_clock=start_clock, end_clock=end_clock,
                                      score_home=start_score[self.home], score_away=start_score[self.away],
                                      home_lineup=tuple(sorted(on[self.home])), away_lineup=tuple(sorted(on[self.away])),
-                                     valid=ok, reason=reason))
+                                     valid=ok, reason=reason, **ct))
                 offense = next_offense
                 active = False
                 pts = 0
                 and1 = False
                 start_clock = end_clock
                 start_score = dict(score)
+                for k in ct:
+                    ct[k] = 0
+                sc.update(pending_chance=0, and1_used=False, cont_team=False, att_since_cont=0,
+                          retain_pending=0)
+
+            def note_attempt(bucket):
+                """Register an attempt event and, if it is the possession's first, its bucket.
+
+                Only the FIRST attempt is recorded by type.  Everything after it exists only because
+                a rebound went the offense's way, and conditioning on that is exactly the luck the
+                expected-points target is built to remove."""
+                # A new attempt while a miss is still unresolved means the offense kept the ball
+                # without the feed recording a rebound -- a block or a tip sequence.  About one
+                # possession in 100,000, but it is a real continuation and leaving it out is what
+                # breaks the identity below.
+                if sc["retain_pending"] and ct["att"] > 0:
+                    ct["att_retained"] += 1       # a retention foul, not a rebound, bought this one
+                    sc["retain_pending"] = 0
+                elif sc["pending_chance"]:
+                    ct["reb_chance"] += 1
+                    ct["reb_cont"] += 1
+                    ct["oreb_unattr"] += 1
+                    sc.update(pending_chance=0, cont_team=False, att_since_cont=0)
+                if ct["att"] == 0:
+                    ct[f"att1_{bucket}"] += 1
+                ct["att"] += 1
+                sc["att_since_cont"] += 1
 
             def ensure_offense(team, i):
                 """An offensive action by `team`: switch (closing the current possession) if needed."""
@@ -319,11 +423,14 @@ class GameParser:
                         close("period_end", 0.0, None)
                         # technical free throws made after a team's last possession: credit that team's last possession
                         for t in self.teams:
-                            if pending[t] > 0:
+                            if pending[t] > 0 or pend_fta[t] > 0:
                                 for rec in reversed(recs):
                                     if rec["offense"] == t:
                                         rec["points"] += pending[t]
-                                        pending[t] = 0
+                                        rec["pts_tech"] += pending[t]   # keep the identity exact
+                                        rec["fta_tech"] += pend_fta[t]
+                                        rec["ftm_tech"] += pend_ftm[t]
+                                        pending[t] = pend_fta[t] = pend_ftm[t] = 0
                                         break
                     continue
                 if at == "Substitution":
@@ -366,7 +473,20 @@ class GameParser:
                 if at in ("Made Shot", "Missed Shot", "Heave"):
                     if team not in self.teams:
                         continue
-                    ensure_offense(team, i)
+                    ensure_offense(team, i)     # may close(); every counter below must follow it
+                    made = at == "Made Shot"
+                    three = int(r.shotValue) == 3
+                    bucket = "thr" if three else ("rim" if 0 <= r.shot_dist <= RIM_FT else "mid")
+                    ct["fga"] += 1
+                    ct[f"fga_{bucket}"] += 1
+                    ct["fg3a"] += three
+                    if made:
+                        ct["fgm"] += 1
+                        ct[f"fgm_{bucket}"] += 1
+                        ct["fg3m"] += three
+                    note_attempt(bucket)          # resolves any earlier miss, before arming this one
+                    if not made:
+                        sc["pending_chance"] = 1
                     if at == "Made Shot":
                         v = int(r.shotValue) if int(r.shotValue) in (2, 3) else 2
                         score[team] += v
@@ -390,6 +510,7 @@ class GameParser:
                     if team not in self.teams:
                         continue
                     ensure_offense(team, i)
+                    ct["tov"] += 1
                     close("turnover", r.clock_s, self._other(team))
                     continue
                 if at == "Rebound":
@@ -400,7 +521,20 @@ class GameParser:
                         active = True
                         continue
                     if team == offense:
-                        continue      # offensive rebound: possession continues
+                        # offensive rebound: the possession continues, so this resolves the pending
+                        # chance as a continuation.  Team rebounds (teamId 0) count here too; the
+                        # period-end ones are taken back out in close().
+                        if sc["pending_chance"]:
+                            ct["reb_chance"] += 1
+                            ct["reb_cont"] += 1
+                            team_reb = int(r.teamId) == 0
+                            ct["oreb_t" if team_reb else "oreb_p"] += 1
+                            sc.update(pending_chance=0, cont_team=team_reb, att_since_cont=0)
+                        continue
+                    # defensive rebound: resolve the chance BEFORE close(), which flushes the record
+                    if sc["pending_chance"]:
+                        ct["reb_chance"] += 1
+                        sc["pending_chance"] = 0
                     close("dreb", r.clock_s, team)
                     active = True     # the rebounding team now has the ball
                     continue
@@ -414,25 +548,66 @@ class GameParser:
                     technical = "Technical" in st
                     retain = ("Flagrant" in st) or ("Clear Path" in st)
                     if technical:
+                        live = offense == team and active
                         if made:
                             score[team] += 1
-                            if offense == team and active:
+                            if live:
                                 pts += 1
+                                ct["pts_tech"] += 1
                             else:
                                 pending[team] += 1   # credited to the team's next (or, at period end, last) possession
+                        if live:
+                            ct["fta_tech"] += 1
+                            ct["ftm_tech"] += made
+                        else:
+                            pend_fta[team] += 1
+                            pend_ftm[team] += made
                         continue
-                    ensure_offense(team, i)
+                    ensure_offense(team, i)     # may close(); every counter below must follow it
+                    m = FT_RE.search(st)
+                    k, n = (int(m.group(2)), int(m.group(3))) if m else (1, 1)
+                    if k == 1:
+                        # The trip starts here.  Three kinds of trip are NOT new attempt events:
+                        #   and-1          the field goal it follows already counted
+                        #   fouled on a miss that the feed ALSO recorded as a missed FG.  Usually a
+                        #     shooting foul on a miss records no FGA at all, which is why trips
+                        #     count as attempts -- but when both appear they are one attempt, and
+                        #     the whistle means that "miss" was never a live rebound either
+                        #   retained      flagrant, clear path and away-from-play keep the ball, so
+                        #     they do not terminate anything
+                        retained = retain or "Away From Play" in st
+                        double = sc["last_foul_shooting"] and sc["pending_chance"] == 1
+                        if and1 and not sc["and1_used"]:
+                            sc["and1_used"] = True
+                            ct["and1"] += 1
+                        elif double:
+                            sc["pending_chance"] = 0     # the whistle killed the rebound chance
+                            ct["fga_fouled"] += 1
+                        elif not retained:
+                            ct["trip_shoot" if sc["last_foul_shooting"] else "trip_ns"] += 1
+                            note_attempt("ft")
+                        if retained:
+                            sc["retain_pending"] = 1
+                    ct["fta"] += 1
+                    ct["ftm"] += made
+                    if ct["att"] <= 1:
+                        ct["fta1"] += 1     # free throws belonging to the possession's first attempt
                     if made:
                         score[team] += 1
                         pts += 1
-                    m = FT_RE.search(st)
                     if retain or not m:
                         continue
-                    k, n = int(m.group(2)), int(m.group(3))
+                    if k == n and not made:
+                        sc["pending_chance"] = 1    # a missed last free throw is a live rebound
                     if k == n and made:
                         close("made_ft", r.clock_s, self._other(team))
                     continue
-                # fouls and anything else: no possession effect
+                if at == "Foul":
+                    # observed but not acting: the trip that follows needs to know whether the foul
+                    # was a shooting foul, because a shooting foul on a MISS records no FGA at all
+                    sc["last_foul_shooting"] = "Shooting" in str(r.subType)
+                    continue
+                # anything else: no possession effect
             prev_offense = None
         df = pd.DataFrame(recs)
         return df
@@ -461,9 +636,15 @@ class GameParser:
                 if abs(margin_h) >= gt.get("q4_margin_late", 15) and clock < 60 * gt.get("late_minutes", 6):
                     is_gt = True
             hl, al = first["home_lineup"], first["away_lineup"]
-            rec = dict(period=period, poss_h=int((g["offense"] == self.home).sum()), poss_a=int((g["offense"] == self.away).sum()),
-                       pts_h=float(g.loc[g["offense"] == self.home, "points"].sum()), pts_a=float(g.loc[g["offense"] == self.away, "points"].sum()),
+            mh, ma = g["offense"] == self.home, g["offense"] == self.away
+            rec = dict(period=period, poss_h=int(mh.sum()), poss_a=int(ma.sum()),
+                       pts_h=float(g.loc[mh, "points"].sum()), pts_a=float(g.loc[ma, "points"].sum()),
                        margin_h=margin_h, frac_rem=frac_rem, is_gt=is_gt, start_clock=clock)
+            # every counter is defined for the team ON OFFENSE, so the opponent's defensive version
+            # of it is just the other side's row -- build_design already emits both (design.py:245)
+            for c in POSS_COUNTERS:
+                rec[f"{c}_h"] = float(g.loc[mh, c].sum())
+                rec[f"{c}_a"] = float(g.loc[ma, c].sum())
             rec.update({c: int(p) for c, p in zip(HOME_SLOTS, hl)})
             rec.update({c: int(p) for c, p in zip(AWAY_SLOTS, al)})
             rows.append(rec)
@@ -497,7 +678,16 @@ def build_season(season: int, phase: str, cfg, force=False, verbose=True):
     path = out_dir / f"{season}_{phase}.parquet"
     dpath = out_dir / f"{season}_{phase}_diag.parquet"
     if path.exists() and dpath.exists() and not force:
-        return pd.read_parquet(path), pd.read_parquet(dpath)
+        st, d = pd.read_parquet(path), pd.read_parquet(dpath)
+        # A cache written before the per-possession counters existed still loads, and its missing
+        # columns become NaN the moment it is concatenated with a fresh one -- which then flows
+        # silently into y and w.  Refuse it instead.
+        have = int(d["stint_schema"].iloc[0]) if "stint_schema" in d.columns and len(d) else 0
+        if have >= STINT_SCHEMA:
+            return st, d
+        raise StaleStintCache(
+            f"{path.name} was built at schema {have}, this code needs {STINT_SCHEMA}. "
+            f"Rebuild with: python scripts/02_stints.py {season} {season} {phase} --force")
     gl = load_gamelog(season, phase, cfg)
     games = game_table(gl)
     gt_rule = cfg.get("garbage_time", {})
@@ -527,6 +717,7 @@ def build_season(season: int, phase: str, cfg, force=False, verbose=True):
     stints = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
     diag = pd.DataFrame(diags)
     diag["seconds_total"] = time.time() - t0
+    diag["stint_schema"] = STINT_SCHEMA
     stints.to_parquet(path, index=False)
     diag.to_parquet(dpath, index=False)
     if name_parts:

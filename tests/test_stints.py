@@ -92,3 +92,59 @@ def test_possessions_and_stints_on_synthetic_game():
     assert not st["is_gt"].any()
     # sum of player possessions = 5 x team possessions
     assert st[["h1", "h2", "h3", "h4", "h5"]].notna().all().all()
+
+
+# ------------------------------------------------------------------ per-possession counters
+# Two identities have to hold exactly, or the geometric-series model built on top of these counters
+# is not well posed.  See FINDINGS.md section 14 for how the attempt definition was chosen.
+
+def _poss():
+    gp = GameParser(synthetic_game(), _box(), HOME, AWAY, "0020000001",
+                    gt_rule={"q4_margin_late": 15, "late_minutes": 6, "q4_margin_any": 20})
+    return gp, gp.possessions()
+
+
+def test_points_reconcile_with_the_shooting_counters():
+    """points - pts_tech == 2*(fgm - fg3m) + 3*fg3m + ftm, exactly, on every possession.
+
+    pts_tech exists precisely so this holds: technical free throws are credited to a team's next or
+    last possession, and the period-end path mutates an already-appended record, so without a
+    separate counter the identity breaks on about one possession a game."""
+    _, p = _poss()
+    lhs = p["points"] - p["pts_tech"]
+    rhs = 2 * (p["fgm"] - p["fg3m"]) + 3 * p["fg3m"] + p["ftm"]
+    assert (lhs == rhs).all(), p.loc[lhs != rhs, ["reason", "points", "pts_tech", "fgm", "fg3m", "ftm"]]
+
+
+def test_every_attempt_after_the_first_came_from_an_offensive_rebound():
+    """reb_cont - cont_dead == att - 1 on any possession that reaches an attempt.
+
+    This is the identity the whole continuation model rests on: a possession gets a second attempt
+    only by rebounding its own miss.  `cont_dead` is the correction for a continuation that led to
+    no further attempt -- rebound your own miss and then turn it over -- which is about 1.3% of
+    possessions and would otherwise look like a broken identity."""
+    _, p = _poss()
+    got = p[p["att"] > 0]
+    lhs = got["reb_cont"] - got["cont_dead"] + got["att_retained"]
+    assert (lhs == got["att"] - 1).all(), got[["reason", "att", "reb_cont", "cont_dead", "att_retained"]]
+    assert (p.loc[p["att"] == 0, "reb_cont"] == 0).all()
+
+
+def test_exactly_one_first_attempt_bucket_per_possession_with_an_attempt():
+    _, p = _poss()
+    b = p[["att1_rim", "att1_mid", "att1_thr", "att1_ft"]].sum(axis=1)
+    assert (b == (p["att"] > 0).astype(int)).all(), p.assign(buckets=b)[["reason", "att", "buckets"]]
+
+
+def test_counters_survive_the_stint_collapse():
+    """Every counter is emitted per side and sums to the possession-level total."""
+    from eracoef.stints import POSS_COUNTERS
+    gp, p = _poss()
+    st = gp.stints(p)
+    for c in POSS_COUNTERS:
+        assert f"{c}_h" in st.columns and f"{c}_a" in st.columns, c
+        assert st[f"{c}_h"].sum() == p.loc[p["offense"] == HOME, c].sum(), c
+        assert st[f"{c}_a"].sum() == p.loc[p["offense"] == AWAY, c].sum(), c
+    # the and-1 possession: one field goal, one free throw, ONE attempt event
+    a1 = p[p["reason"] == "made_ft"].iloc[0]
+    assert a1["fga"] == 1 and a1["fta"] == 1 and a1["att"] == 1 and a1["and1"] == 1

@@ -45,10 +45,11 @@ def window_seasons(cfg, rolling=False):
     return [(s, s + 2) for s in range(first, last - 1, step)]
 
 
-def build_window(seasons, cfg, phases=("RS",), gt_weight=None, margin_bins=False):
+def build_window(seasons, cfg, phases=("RS",), gt_weight=None, margin_bins=False, target="pts"):
     stints = pd.concat([load_stints(s, p, cfg) for s in seasons for p in phases], ignore_index=True)
     box = season_box(seasons, list(phases), cfg)
-    return build_design(stints, box, cfg["features"], cfg, gt_weight=gt_weight, margin_bins=margin_bins)
+    return build_design(stints, box, cfg["features"], cfg, gt_weight=gt_weight, margin_bins=margin_bins,
+                        target=target)
 
 
 def window_label(seasons) -> str:
@@ -111,18 +112,79 @@ def fit_beta(wd, cfg, lam=None, lam_ratio=None, lam_scale=(1.0,), lam_buckets=No
     return out
 
 
-def player_ratings_table(wd, beta, cfg, seasons, beta_po=None, names=None) -> pd.DataFrame:
+def player_priced_beta(panel, features, exclude=(), min_poss=2000, pen=5.0) -> np.ndarray:
+    """The box prior priced to predict a PLAYER, not a team.
+
+    The published beta is fit by regressing stint margin on LINEUP SUMS, which prices the box score
+    for the team.  This one regresses a player's own padded rates on his own NEXT-window pure
+    on-court impact (`u / a`, the de-shrunk residual, weighted by the shrinkage `a`), so it prices
+    the box score for the player.  Returns the model's raw 26-vector, offense then defense.
+
+    `panel` is outputs/xrapm_panel.parquet from scripts/27_xrapm_prior.py: one row per player per
+    window per side, with the 13 rates, `poss`, `u` and `a`.  `exclude` drops windows from the FIT
+    (not the panel), which is how a window's prior is kept off its own data.
+
+    No consensus is involved: the target is the model's own next-window on-court estimate.
+    """
+    windows = sorted(panel["window"].unique())
+    nxt = {windows[i]: windows[i + 1] for i in range(len(windows) - 1)}
+    exclude = set(exclude)
+    out = []
+    for side in ("O", "D"):
+        a = panel[(panel.side == side) & (panel.poss >= min_poss)].copy()
+        b = a[["window", "player_id", "u", "a"]].rename(
+            columns={"window": "next", "u": "u_next", "a": "a_next"})
+        a["next"] = a.window.map(nxt)
+        d = a.merge(b, on=["next", "player_id"], how="inner")
+        d = d[~d["next"].isin(exclude) & ~d.window.isin(exclude)]
+        X = np.column_stack([np.ones(len(d)), d[features].to_numpy()])
+        y = (d.u_next / np.maximum(d.a_next, 1e-9)).to_numpy()
+        w = d.a_next.to_numpy()
+        p = pen * np.eye(X.shape[1])
+        p[0, 0] = 0.0                                     # the intercept is not penalised
+        out.append(np.linalg.solve((X * w[:, None]).T @ X + p, (X * w[:, None]).T @ y)[1:])
+    return np.concatenate(out)
+
+
+def hybrid_beta(panel, features, window_label_, min_poss=2000, pen=5.0) -> np.ndarray:
+    """The shipped prior: player-priced on offense, ZERO on defense, leave-one-window-out.
+
+    Defense gets no box prior at all because the box score has no defensive vocabulary -- the
+    weighted R^2 of a player's 13 rates on his own defensive on-court impact is 0.26, and pure RAPM
+    beats the box-primed defensive rating 0.877 to 0.755 (FINDINGS.md, scripts/30_ladder.py).  The
+    box term enters the model as an offset `Xbox @ beta` with separate offensive and defensive
+    columns, so zeroing the defensive half IS "no defensive prior", in one fit at one penalty.
+
+    `window_label_` is excluded from the beta fit.  The fit's rows are (window X rates -> window Y
+    impact) pairs, and `player_priced_beta` drops a pair if EITHER end is excluded, so one label is
+    enough to keep the window off both sides of its own prior.
+    """
+    beta = player_priced_beta(panel, features, exclude=[window_label_], min_poss=min_poss, pen=pen)
+    nf = len(features)
+    return np.concatenate([beta[:nf], np.zeros(nf)])
+
+
+def player_ratings_table(wd, beta, cfg, seasons, beta_po=None, names=None,
+                         prior_offset=None) -> pd.DataFrame:
     """Per player-season ratings from the plug-in fit at the fixed lambda.
 
     prior  = the player's padded full-season rates times the window's coefficients, centred on the
              average player (the exposure columns are centred on the sum of five, so divide by five)
-    u      = what the ridge finds beyond the box score
-    rapm_mm = prior + u, the joint mixed-model RAPM rating
+    u      = what the ridge finds beyond the box score, and beyond `prior_offset` when one is given
+    rapm_mm = prior + the residual fit with NO offset: what the model says without the boosted
+             correction, kept so the with and without versions stay comparable
     Defense is flipped so positive = good; total is offense plus defense.
+
+    `prior_offset` is the per-Z-column boosted correction in raw sign.  Passing it makes `u` the
+    residual refit *given* the correction, which is what scripts/10_boost.py ships.  Adding a
+    correction on top of a residual that was fit without it double-counts whatever it explains.
     """
-    pipe = plugin_fit(wd, beta, lam=float(cfg["lam_plugin"]), lam_ratio=float(cfg["lam_ratio_plugin"]),
-                      pad_target=cfg["pad_target"])
+    kw = dict(lam=float(cfg["lam_plugin"]), lam_ratio=float(cfg["lam_ratio_plugin"]),
+              pad_target=cfg["pad_target"])
+    plain = plugin_fit(wd, beta, **kw)
+    pipe = plain if prior_offset is None else plugin_fit(wd, beta, prior_offset=prior_offset, **kw)
     exp, mm = pipe["exposure"], pipe["mm"]
+    u_plain = plain["mm"].u_
     nf = mm.n_feat_
     m = wd.spec.n_ps
     ro = exp.season_rates_ - exp.means_o_ / 5.0
@@ -136,21 +198,31 @@ def player_ratings_table(wd, beta, cfg, seasons, beta_po=None, names=None) -> pd
     df["prior_def"] = -(rd @ beta[nf:])
     df["u_off"] = mm.u_[:m]
     df["u_def"] = -mm.u_[m:]
+    df["u_plain_off"] = u_plain[:m]
+    df["u_plain_def"] = -u_plain[m:]
     if beta_po is not None:
         df["prior_off_po"] = ro @ beta_po[:nf]
         df["prior_def_po"] = -(rd @ beta_po[nf:])
-    for part in ("prior", "u"):
+    for part in ("prior", "u", "u_plain"):
         df[f"{part}_total"] = df[f"{part}_off"] + df[f"{part}_def"]
     for side in ("off", "def", "total"):
-        df[f"rapm_mm_{side}"] = df[f"prior_{side}"] + df[f"u_{side}"]
+        df[f"rapm_mm_{side}"] = df[f"prior_{side}"] + df[f"u_plain_{side}"]
     if beta_po is not None:
         df["prior_total_po"] = df.prior_off_po + df.prior_def_po
         for side in ("off", "def", "total"):
-            df[f"rapm_mm_{side}_po"] = df[f"prior_{side}_po"] + df[f"u_{side}"]
+            df[f"rapm_mm_{side}_po"] = df[f"prior_{side}_po"] + df[f"u_plain_{side}"]
     if names is not None:
-        df = df.merge(names, on=["player_id", "season"], how="left")
+        if "season" in df.columns and "season" in names.columns:
+            df = df.merge(names, on=["player_id", "season"], how="left")
+        else:
+            # player-window units: take the name from the season he played most
+            gp = wd.game_poss.merge(wd.spec.psx_table[["psx_idx", "player_id", "season"]], on="psx_idx", how="left")
+            poss = gp.groupby(["player_id", "season"], as_index=False)["poss_off"].sum()
+            pick = poss.sort_values("poss_off").drop_duplicates("player_id", keep="last")
+            nm = pick.merge(names, on=["player_id", "season"], how="left")[["player_id", "player_name"]]
+            df = df.merge(nm, on="player_id", how="left")
     df["shrinkage"] = np.where(df.poss_off > 0, df.poss_off / (df.poss_off + float(cfg["lam_plugin"])), 0.0)
-    return df.drop(columns=["ps_idx"], errors="ignore")
+    return df.drop(columns=["ps_idx", "psx_idx"], errors="ignore")
 
 
 def feature_correlations(wd, cfg, seasons) -> pd.DataFrame:
@@ -262,3 +334,60 @@ def write_outputs(res: dict, cfg, tag=""):
         df.to_parquet(p, index=False)
         paths[name] = p
     return paths
+
+
+# ---------------------------------------------------------------- LRBoost
+def boost_panels(cfg, windows=None, lam=None, lam_ratio=None, lam_plugin=None, ratio_plugin=None,
+                 verbose=True):
+    """Per-window linear fit plus the player panel the booster trains on.
+
+    Returns (panels, per_window) where per_window maps the window label to the pieces needed to
+    rebuild its prior: beta, the fitted exposure, the plug-in fit and the design.
+    """
+    from .boost import dominant_team, player_panel
+    windows = window_seasons(cfg) if windows is None else windows
+    lam = float(cfg["lam_beta"]) if lam is None else float(lam)
+    lam_ratio = float(cfg["lam_ratio_beta"]) if lam_ratio is None else float(lam_ratio)
+    lam_plugin = float(cfg["lam_plugin"]) if lam_plugin is None else float(lam_plugin)
+    ratio_plugin = float(cfg["lam_ratio_plugin"]) if ratio_plugin is None else float(ratio_plugin)
+    panels, per_window = [], {}
+    t0 = time.time()
+    for w in windows:
+        seasons = list(range(w[0], w[1] + 1))
+        lab = window_label(seasons)
+        wd = build_window(seasons, cfg)
+        cf = crossfit_beta(wd, lam=lam, lam_ratio=lam_ratio, pad_target=cfg["pad_target"])
+        pipe = plugin_fit(wd, cf.beta_, lams=[lam_plugin], cv=2, lam_ratio=ratio_plugin,
+                          pad_target=cfg["pad_target"])
+        grp = dominant_team(wd, season_box(seasons, ["RS"], cfg))
+        panels.append(player_panel(wd, cf.beta_, cfg, window=lab, groups=grp, pipe=pipe,
+                                   lam=lam_plugin, lam_ratio=ratio_plugin))
+        per_window[lab] = dict(seasons=seasons, wd=wd, beta=cf.beta_, cov_beta=cf.cov_beta_,
+                               pipe=pipe, groups=grp)
+        if verbose:
+            print(f"  panel {lab}: {wd.spec.n_ps} players ({time.time() - t0:.0f}s)", flush=True)
+    return pd.concat(panels, ignore_index=True), per_window
+
+
+def fit_pooled_boost(panel, cfg, group_by="player", hold_out=None, **kw):
+    """One booster pooled over every window, cross-fitted so a player never scores himself.
+
+    `group_by="player"` folds on the player id, so a player recurring across windows never lands on
+    both sides of a split; that is the channel that would inflate the shrinkage factor spuriously.
+    `group_by="team"` folds on team-window instead, which also separates teammates but lets a player
+    train on his own later self.  The next-window test in the study harness is the honest guard.
+    """
+    from .boost import fit_boost
+    p = panel.copy()
+    if hold_out is not None:                      # leave-one-window-out, for an honest gate
+        p = p[p.window != hold_out].copy()
+    if group_by == "player":
+        p["group"] = p["player_id"].to_numpy()
+    elif group_by == "team":
+        p["group"] = p["window"].astype(str) + ":" + p["group"].astype(str)
+    kw.setdefault("min_poss", float(cfg.get("boost_min_poss", 4500)))
+    kw.setdefault("quality", cfg.get("boost_quality"))
+    nui = cfg.get("boost_nuisance")
+    if nui is not None:
+        kw.setdefault("nuisance", {k: tuple(v or ()) for k, v in nui.items()})
+    return fit_boost(p, cfg["features"], **kw)
