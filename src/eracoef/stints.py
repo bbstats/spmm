@@ -668,33 +668,48 @@ class GameParser:
         key = poss["period"].astype(str) + "|" + poss["home_lineup"].astype(str) + "|" + poss["away_lineup"].astype(str)
         new = (key != key.shift()) | (~poss["valid"]) | (~poss["valid"].shift(fill_value=True))
         sid = new.cumsum()
-        rows = []
-        for _, g in poss[poss["valid"]].groupby(sid[poss["valid"]]):
-            first = g.iloc[0]
-            margin_h = int(first["score_home"] - first["score_away"])
-            clock = float(first["start_clock"])
-            period = int(first["period"])
-            frac_rem = regulation_remaining(period, clock) / 2880.0
-            is_gt = False
-            if period == 4:
-                if abs(margin_h) >= gt.get("q4_margin_any", 20):
-                    is_gt = True
-                if abs(margin_h) >= gt.get("q4_margin_late", 15) and clock < 60 * gt.get("late_minutes", 6):
-                    is_gt = True
-            hl, al = first["home_lineup"], first["away_lineup"]
-            mh, ma = g["offense"] == self.home, g["offense"] == self.away
-            rec = dict(period=period, poss_h=int(mh.sum()), poss_a=int(ma.sum()),
-                       pts_h=float(g.loc[mh, "points"].sum()), pts_a=float(g.loc[ma, "points"].sum()),
-                       margin_h=margin_h, frac_rem=frac_rem, is_gt=is_gt, start_clock=clock)
-            # every counter is defined for the team ON OFFENSE, so the opponent's defensive version
-            # of it is just the other side's row -- build_design already emits both (design.py:245)
-            for c in POSS_COUNTERS:
-                rec[f"{c}_h"] = float(g.loc[mh, c].sum())
-                rec[f"{c}_a"] = float(g.loc[ma, c].sum())
-            rec.update({c: int(p) for c, p in zip(HOME_SLOTS, hl)})
-            rec.update({c: int(p) for c, p in zip(AWAY_SLOTS, al)})
-            rows.append(rec)
-        return pd.DataFrame(rows)
+        p = poss[poss["valid"]]
+        if len(p) == 0:
+            return pd.DataFrame()
+        s = sid[poss["valid"]].to_numpy()
+
+        # One groupby over a masked matrix, rather than a .loc[].sum() per counter per stint.  With
+        # 35 counters on both sides that was ~2.4M pandas slice-sums a season and dominated the
+        # whole parse; this is the same arithmetic in one pass.
+        cols = ["points"] + list(POSS_COUNTERS)
+        vals = p[cols].to_numpy(dtype=float)
+        is_h = (p["offense"].to_numpy() == self.home)
+        side = np.concatenate([vals * is_h[:, None], vals * (~is_h)[:, None]], axis=1)
+        names = [f"{c}_h" for c in cols] + [f"{c}_a" for c in cols]
+        agg = pd.DataFrame(side, columns=names).groupby(s, sort=True).sum()
+        agg = agg.rename(columns={"points_h": "pts_h", "points_a": "pts_a"})
+        cnt = pd.DataFrame({"poss_h": is_h.astype(int), "poss_a": (~is_h).astype(int)}
+                           ).groupby(s, sort=True).sum()
+
+        # per-stint context comes from the FIRST possession of the stint, as before
+        first = p.groupby(s, sort=True).head(1)
+        period = first["period"].to_numpy().astype(int)
+        clock = first["start_clock"].to_numpy().astype(float)
+        margin_h = (first["score_home"] - first["score_away"]).to_numpy().astype(int)
+        frac_rem = np.array([regulation_remaining(int(q), float(c)) for q, c in zip(period, clock)]) / 2880.0
+        is_gt = (period == 4) & (
+            (np.abs(margin_h) >= gt.get("q4_margin_any", 20))
+            | ((np.abs(margin_h) >= gt.get("q4_margin_late", 15)) & (clock < 60 * gt.get("late_minutes", 6))))
+
+        out = pd.DataFrame({"period": period, "poss_h": cnt["poss_h"].to_numpy(),
+                            "poss_a": cnt["poss_a"].to_numpy(), "pts_h": agg["pts_h"].to_numpy(),
+                            "pts_a": agg["pts_a"].to_numpy(), "margin_h": margin_h,
+                            "frac_rem": frac_rem, "is_gt": is_gt, "start_clock": clock})
+        # every counter is defined for the team ON OFFENSE, so the opponent's defensive version of it
+        # is just the other side's row -- build_design already emits both (design.py:245)
+        for c in POSS_COUNTERS:
+            out[f"{c}_h"] = agg[f"{c}_h"].to_numpy()
+            out[f"{c}_a"] = agg[f"{c}_a"].to_numpy()
+        for slots, col in ((HOME_SLOTS, "home_lineup"), (AWAY_SLOTS, "away_lineup")):
+            L = np.array([list(t) for t in first[col]], dtype=np.int64)
+            for i, name in enumerate(slots):
+                out[name] = L[:, i]
+        return out
 
 
 # ----------------------------------------------------------------------------- season driver
