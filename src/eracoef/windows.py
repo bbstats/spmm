@@ -155,11 +155,13 @@ def hybrid_beta(panel, features, window_label_, min_poss=2000, pen=5.0) -> np.nd
     box term enters the model as an offset `Xbox @ beta` with separate offensive and defensive
     columns, so zeroing the defensive half IS "no defensive prior", in one fit at one penalty.
 
-    `window_label_` is excluded from the beta fit.  The fit's rows are (window X rates -> window Y
-    impact) pairs, and `player_priced_beta` drops a pair if EITHER end is excluded, so one label is
-    enough to keep the window off both sides of its own prior.
+    `window_label_` is excluded from the beta fit; it may be one label or a collection of them (a
+    training block can straddle more than one window).  The fit's rows are (window X rates -> window
+    Y impact) pairs, and `player_priced_beta` drops a pair if EITHER end is excluded, so listing a
+    window once keeps it off both sides of its own prior.
     """
-    beta = player_priced_beta(panel, features, exclude=[window_label_], min_poss=min_poss, pen=pen)
+    labs = [window_label_] if isinstance(window_label_, str) else list(window_label_)
+    beta = player_priced_beta(panel, features, exclude=labs, min_poss=min_poss, pen=pen)
     nf = len(features)
     return np.concatenate([beta[:nf], np.zeros(nf)])
 
