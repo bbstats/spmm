@@ -92,24 +92,12 @@ def ft_padding(box: pd.DataFrame, min_fta: float = 20.0) -> tuple[float, float]:
         tau2 = Var(p_hat) - E[p_hat (1 - p_hat) / n]
         k    = E[p_hat (1 - p_hat)] / tau2
 
-    k is in ATTEMPTS, which is the unit free-throw percentage is measured in.  BoxExposure's
-    split_half_k estimates a k per 100 POSSESSIONS for the lineup exposure -- a different unit and a
-    different quantity -- which is why this is four lines of its own rather than a reuse of it.
+    k is in ATTEMPTS, which is the unit free-throw percentage is measured in.  The estimator lives in
+    `pad.mom_k`, the one padding helper; this is the free-throw call to it.
     """
-    import numpy as np
+    from .pad import mom_k
     g = box.groupby(["player_id", "season"], as_index=False)[["ftm", "ft_miss"]].sum()
-    g["fta"] = g.ftm + g.ft_miss
-    g = g[g.fta >= min_fta]
-    if len(g) < 20:
-        return 0.75, 40.0
-    p = (g.ftm / g.fta).to_numpy()
-    w = g.fta.to_numpy()
-    league = float(g.ftm.sum() / g.fta.sum())
-    mu = np.average(p, weights=w)
-    between = np.average((p - mu) ** 2, weights=w)
-    within = np.average(p * (1 - p) / w, weights=w)
-    tau2 = max(between - within, 1e-6)
-    return league, float(np.average(p * (1 - p), weights=w) / tau2)
+    return mom_k(g.ftm.to_numpy(), (g.ftm + g.ft_miss).to_numpy(), min_att=min_fta, fallback_rate=0.75)
 
 
 def ft_totals(box: pd.DataFrame) -> dict:

@@ -350,13 +350,12 @@ class BoxExposure(BaseEstimator, TransformerMixin):
 
     @staticmethod
     def _pad_ps(C, P, n_eff, k, target):
-        """(n_eff * rate + k * target) / (n_eff + k), with one k and one target per Z unit."""
+        """(n_eff * rate + k * target) / (n_eff + k), with one k and one target per Z unit (pad.shrink)."""
+        from .pad import shrink
         pos = P > 0
         with np.errstate(divide="ignore", invalid="ignore"):
             rate = np.where(pos[:, None], 100.0 * C / np.where(pos, P, 1.0)[:, None], 0.0)
-        n = n_eff[:, None]
-        denom = n + k
-        return np.where(denom > 0, (n * rate + k * target) / np.where(denom > 0, denom, 1.0), target)
+        return shrink(rate, n_eff[:, None], k, target)
 
     def _fit_target_bins(self, C, P, season_of, n_seasons, n_feat, league, P_bins=None):
         """Possession-conditional padding target: league mean within log-spaced possession bins."""

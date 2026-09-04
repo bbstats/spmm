@@ -33,8 +33,19 @@ def _sample_lineup(rng, weights):
 
 def simulate(n_seasons=2, n_teams=10, players_per_team=12, games_per_season=150, stints_per_game=(30, 50),
              beta_O=BETA_O, beta_D=BETA_D, tau_u=(1.5, 1.5), eps_var=0.5, rate_cv=0.5, seed=0, leak=True,
-             po_series_per_season=0, delta_O=None, delta_D=None, first_season=2001):
-    """Return dict(stints=DataFrame, box=DataFrame, truth=dict)."""
+             po_series_per_season=0, delta_O=None, delta_D=None, first_season=2001, rho=None, turnover=0.0):
+    """Return dict(stints=DataFrame, box=DataFrame, truth=dict).
+
+    `rho` and `turnover` exist for the out-of-season holdout test (holdout.py), which needs a player's
+    talent to PERSIST across seasons and rosters to CHANGE:
+      rho       None (default) redraws every player's rates and impacts independently each season, the
+                original behaviour, which leaves the fixtures in tests/test_core.py byte-identical.  A
+                float in [0, 1] makes the impacts AR(1) across seasons with that correlation (and the
+                rates AR(1) on the log scale), so a rating fit on one season carries information about
+                the next.
+      turnover  the fraction of players moved to a different team each season (a permutation among the
+                movers, so every team keeps its size).  Player ids persist either way.
+    """
     rng = np.random.default_rng(seed)
     feats = FEATURES
     nf = len(feats)
@@ -47,20 +58,41 @@ def simulate(n_seasons=2, n_teams=10, players_per_team=12, games_per_season=150,
 
     stint_rows, box_rows, truth_rows = [], [], []
     game_counter = 0
+    n_pl = n_teams * players_per_team
+    team_of = np.repeat(np.arange(n_teams), players_per_team)
+    pid = 1000 * (team_of + 1) + np.tile(np.arange(players_per_team), n_teams) + 1
+    shape = 1.0 / rate_cv ** 2
+    sd_log = np.sqrt(np.log1p(rate_cv ** 2))                 # log-normal with the gamma's mean and cv
+    mean_log = np.log(LEAGUE_MEAN) - 0.5 * sd_log ** 2
+    mu = eta_O = eta_D = None
     for s in range(n_seasons):
         season = first_season + s
-        n_pl = n_teams * players_per_team
-        team_of = np.repeat(np.arange(n_teams), players_per_team)
-        pid = 1000 * (team_of + 1) + np.tile(np.arange(players_per_team), n_teams) + 1
-        # true rates: gamma with mean LEAGUE_MEAN and cv rate_cv
-        shape = 1.0 / rate_cv ** 2
-        mu = rng.gamma(shape, LEAGUE_MEAN / shape, size=(n_pl, nf))
-        eta_O = rng.normal(0, tau_u[0], n_pl)
-        eta_D = rng.normal(0, tau_u[1], n_pl)
+        if s > 0 and turnover > 0:
+            k = int(round(turnover * n_pl))
+            who = rng.choice(n_pl, k, replace=False)
+            team_of = team_of.copy()
+            team_of[who] = team_of[rng.permutation(who)]
+        if rho is None:
+            # true rates: gamma with mean LEAGUE_MEAN and cv rate_cv, redrawn every season
+            mu = rng.gamma(shape, LEAGUE_MEAN / shape, size=(n_pl, nf))
+            eta_O = rng.normal(0, tau_u[0], n_pl)
+            eta_D = rng.normal(0, tau_u[1], n_pl)
+        elif mu is None:
+            # the persistent process starts from its own stationary law (log-normal with the same
+            # mean and cv), so a player's spread is the same in every season and his neighbours
+            # predict him with slope 2 rho / (1 + rho^2), not something that drifts with the season
+            mu = np.exp(mean_log + sd_log * rng.normal(size=(n_pl, nf)))
+            eta_O = rng.normal(0, tau_u[0], n_pl)
+            eta_D = rng.normal(0, tau_u[1], n_pl)
+        else:
+            z = rng.normal(size=(n_pl, nf))
+            mu = np.exp(mean_log + rho * (np.log(mu) - mean_log) + np.sqrt(1 - rho ** 2) * sd_log * z)
+            eta_O = rho * eta_O + np.sqrt(1 - rho ** 2) * rng.normal(0, tau_u[0], n_pl)
+            eta_D = rho * eta_D + np.sqrt(1 - rho ** 2) * rng.normal(0, tau_u[1], n_pl)
         imp_O = mu @ beta_O + eta_O
         imp_D = mu @ beta_D + eta_D
         prop = rng.gamma(2.0, 1.0, n_pl) * np.where(np.tile(np.arange(players_per_team), n_teams) < 5, 3.0, 1.0)
-        truth_rows.append(pd.DataFrame({"player_id": pid, "season": season, "u_O": eta_O, "u_D": eta_D,
+        truth_rows.append(pd.DataFrame({"player_id": pid, "season": season, "team": team_of, "u_O": eta_O, "u_D": eta_D,
                                         "impact_O": imp_O, "impact_D": imp_D, **{f"rate_{f}": mu[:, j] for j, f in enumerate(feats)}}))
         po_imp_O = imp_O + mu @ delta_O
         po_imp_D = imp_D + mu @ delta_D

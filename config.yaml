@@ -81,6 +81,23 @@ cv:
   validation_window: [2012, 2014]
   poss_buckets: [0, 1500, 4500, 1000000]
 
+# The out-of-season criterion (src/eracoef/holdout.py, scripts/45_holdout.py): hold out one season,
+# train on the K nearest seasons either side of it, predict its stints, score against actual points.
+# The one test in this project that is both external to the model and legal to select on.
+holdout:
+  first: 1998            # held-out seasons; 1997 and 2026 have neighbours on one side only
+  last: 2025
+  ks: [2, 4]             # training seasons around the held-out one: K=2 is {H-1, H+1}
+  lam: null              # null = lam_plugin; a list sweeps
+  level: home            # refit on the held-out season: "home" = intercept + home (what every earlier
+                         # script used); "full" = the whole fixed block (margin, garbage time, playoffs)
+  rank_bins: 10          # rank-calibration deciles
+  rank_min_poss: 1000    # a player needs this many training possessions to be ranked
+  exposure_edges: [0, 1, 500, 1500, 4000, 1000000000]   # the --splits=exposure bins (smallest exposure on the floor)
+  consensus:
+    window: [2024, 2026]
+    min_poss: 1000
+
 paths:
   raw: data/raw
   stints: data/stints
