@@ -176,11 +176,15 @@ def score(rat, h):
     A2, c2 = wls([one, home, c_off, c_def], y)
     covered = float((r.o.to_numpy() != 0.0).mean())
 
-    # team-game: sum predicted and actual points over each team's rows in a game, which cancels most
-    # of the per-possession binomial noise
+    # team-game: sum predicted and actual POINTS over each team's rows in a game, then score the
+    # residual, which lets over- and under-predictions inside a team's ~100 possessions cancel before
+    # being squared.  Converting a rate back to points needs true possessions, NOT w: w is
+    # poss * gt_weight, and the project runs gt_weight at 0.5 and 0 for robustness, at which point
+    # y * w / 100 quietly stops being points.
+    poss = wd.rows["poss"].to_numpy()
     g = pd.DataFrame({"g": wd.rows["game_idx"].to_numpy(), "h": wd.rows["is_home_off"].to_numpy(),
-                      "poss": w, "act": y * w / 100.0, "prd": pred * w / 100.0,
-                      "b": base_pred * w / 100.0}).groupby(["g", "h"]).sum()
+                      "poss": poss, "act": y * poss / 100.0, "prd": pred * poss / 100.0,
+                      "b": base_pred * poss / 100.0}).groupby(["g", "h"]).sum()
     return dict(n=w.sum(), mse=wmse(pred), base=wmse(base_pred), calib=wmse(Ac @ cc),
                 calib_side=wmse(A2 @ c2), scale=float(cc[2]),
                 scale_off=float(c2[2]), scale_def=float(c2[3]), covered=covered,
