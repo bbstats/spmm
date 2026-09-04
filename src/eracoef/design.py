@@ -141,6 +141,9 @@ class WindowData:
     game_poss: pd.DataFrame    # game_idx, psx_idx, poss_off, poss_def
     rows: pd.DataFrame         # per-row metadata: game_idx, season, phase, poss, is_home_off, is_gt, half
     games: pd.DataFrame        # game_idx, game_id, season, phase, series_id, half
+    # the offense's per-possession counters (stints.POSS_COUNTERS) summed over the row, when the
+    # stints carry them; the luck-adjusted target (xpts.py) is built from these at window-build time
+    counters: pd.DataFrame | None = None
 
     @property
     def game_half(self) -> np.ndarray:
@@ -166,7 +169,14 @@ class WindowData:
     def subset(self, mask: np.ndarray) -> "WindowData":
         idx = np.flatnonzero(mask)
         return WindowData(self.X[idx], self.y[idx], self.w[idx], self.groups[idx], self.spec,
-                          self.game_box, self.game_poss, self.rows.iloc[idx].reset_index(drop=True), self.games)
+                          self.game_box, self.game_poss, self.rows.iloc[idx].reset_index(drop=True), self.games,
+                          None if self.counters is None else self.counters.iloc[idx].reset_index(drop=True))
+
+    def with_target(self, y: np.ndarray, w: np.ndarray | None = None) -> "WindowData":
+        """The same design with a different response (and, optionally, weight): how a derived target
+        such as expected points is attached without rebuilding anything."""
+        return WindowData(self.X, np.asarray(y, dtype=float), self.w if w is None else np.asarray(w, dtype=float),
+                          self.groups, self.spec, self.game_box, self.game_poss, self.rows, self.games, self.counters)
 
 
 def _order_games(st: pd.DataFrame) -> pd.DataFrame:
@@ -373,4 +383,16 @@ def build_design(stints: pd.DataFrame, box: pd.DataFrame, features: list, cfg: d
     rows = pd.DataFrame({"game_idx": r_game, "season": np.asarray(seasons)[r_season], "phase": np.where(r_po > 0, "PO", "RS"),
                          "poss": poss, "den": den, "is_home_off": is_home_off, "is_gt": r_gt > 0,
                          "stint": stint_i, "half": game_half[r_game]})
-    return WindowData(X=X, y=y, w=w, groups=groups, spec=spec, game_box=game_box, game_poss=game_poss, rows=rows, games=games)
+    # the offense's counters per row, in the same row order (home-offense rows, then away-offense)
+    from .stints import POSS_COUNTERS
+    have = [c for c in POSS_COUNTERS if f"{c}_h" in st.columns and f"{c}_a" in st.columns]
+    counters = None
+    if have:
+        counters = pd.DataFrame({c: np.concatenate([st[f"{c}_{side}"].to_numpy(dtype=float)[s["stint"]]
+                                                    for s, side in zip(sides, ("h", "a"))])
+                                 for c in have})
+        for c in ("pts", "poss"):
+            counters[c] = np.concatenate([st[f"{c}_{side}"].to_numpy(dtype=float)[s["stint"]]
+                                          for s, side in zip(sides, ("h", "a"))])
+    return WindowData(X=X, y=y, w=w, groups=groups, spec=spec, game_box=game_box, game_poss=game_poss, rows=rows, games=games,
+                      counters=counters)

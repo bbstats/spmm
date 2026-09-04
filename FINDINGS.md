@@ -890,3 +890,129 @@ So the honest summary is that **`c_def` trades a forecasting product against a r
 The project ships a player rating, so nothing is changed on this evidence. But it is now measured
 rather than assumed, and the size of what is being given up is known: about 6% of the rating signal
 in held-out prediction.
+
+## 17. The frontier, and the shot term
+
+### The untested combination: `c_def` with the free-throw term
+
+Section 16's `c_def` sweep was run on raw points and reported stint error; the four-system table
+that selected `hybrid + xPTS(ft)` was run at `c_def = 0`. `scripts/42_defweight_xpts.py` crosses
+them: every `c_def` at both targets, both aggregations, both K, with the consensus read once beside
+each row. 28 held-out seasons.
+
+| target | c_def | stint K=2 | game K=2 | stint K=4 | game K=4 | consensus total | consensus defense | archetype bias |
+|---|---|---|---|---|---|---|---|---|
+| pts | 0.00 | 3627.97 | 113.31 | 3626.92 | 113.07 | **0.896** | **0.888** | **+0.195** |
+| pts | 0.50 | 3626.56 | 112.89 | 3625.95 | 112.76 | 0.854 | 0.839 | +0.498 |
+| pts | 0.75 | 3626.49 | 112.93 | 3625.90 | 112.78 | 0.824 | 0.802 | +0.575 |
+| xpts_ft | 0.00 | 3627.83 | 113.24 | 3626.82 | 113.04 | 0.895 | 0.888 | +0.190 |
+| xpts_ft | 0.25 | 3626.90 | 112.94 | 3626.19 | 112.83 | 0.879 | 0.874 | +0.372 |
+| xpts_ft | **0.50** | 3626.41 | **112.81** | 3625.85 | **112.73** | 0.854 | 0.841 | +0.495 |
+| xpts_ft | 0.75 | **3626.34** | 112.85 | **3625.80** | 112.74 | 0.824 | 0.804 | +0.572 |
+| xpts_ft | 1.00 | 3626.70 | 113.07 | 3626.03 | 112.87 | 0.792 | 0.768 | +0.621 |
+
+Three things, each of which the pieces predicted and none of which had been measured:
+
+* **The combination is better than either piece alone, at every `c_def` and both K.** Paired by
+  season against the shipped hybrid at game level, K=2: `c_def = 0.5` alone is −0.44 (z −5.7, 25 of
+  28); xPTS(ft) alone is −0.08 (z −2.2, 20 of 28); together −0.52 (z −6.6, 26 of 28). The two gains
+  add.
+* **The argmin is interior in every row**: 0.75 at stint level, 0.50 at game level, for both targets
+  and both K. The criterion's ability to choose the defensive shrinkage (section 16) survives the
+  change of target.
+* **The two knobs sit on different axes.** xPTS(ft) at `c_def = 0` costs the consensus nothing
+  (0.895 against 0.896, archetype bias 0.190 against 0.195) — it removes luck from the target and
+  touches attribution only through the noise it removes. `c_def` costs exactly what it cost before:
+  the consensus columns are the same to three decimals at each `c_def` whichever target is under
+  them.
+
+So the honest framing is the one section 16 proposed, now measured rather than argued: **a
+frontier, not a winner.** `c_def` buys prediction and sells attribution; the luck adjustment buys
+prediction for free. The project ships a rating, so `c_def` stays at 0 and the luck adjustment is
+the direction to push.
+
+### Stage 4: the shot term is built, it closes, and it loses
+
+`src/eracoef/xpts.py` implements the closure the handoff specified. For every possession the stints
+record the bucket of its FIRST attempt (rim / mid / three / free-throw trip) and the free throws that
+belong to it; everything downstream is marginalised with the lineup's four cross-fitted factor
+rates:
+
+    xpts(p) = x1(b) + fta1 * q + m1(b) * r * V,     V = (1 - t2) * x_att / (1 - (1 - t2) * m_att * r)
+
+Every league constant (make rate by bucket, points and rebound chances per attempt, the turnover
+leak `t2` on a continuation, FT%) comes from the counters of the same seasons, so the closure is
+anchored per era. The lineup's eFG% scales the make probability, its OREB% is `r`, its TOV% scales
+`t2`, its FT rate scales the free-throw part of `x_att`. The per-lineup multiplier is clipped as a
+property of the lineup (the continuation factor against the league first-attempt miss rate), not of
+a short stint's realised bucket mix. Factor lambdas are the ones `scripts/37_factors.py` selected on
+2024-26, held fixed everywhere, exactly as `lam_plugin` is. It lives at window-build time, with the
+four cross-fitted rate fits cached per block in `data/xpts/` (`xpts_design`).
+
+**It closes.** `scripts/43_xpts_gate.py`, 2024-26: expected attempts per possession reaching one are
+within 0.2% of the observed multiplier every season (1.1379 against 1.1355, 1.1443 against 1.1413,
+1.1494 against 1.1471); sum(xpts)/sum(pts) is 0.9955-0.9969, inside the band with no calibration;
+no make probability and no multiplier needed clipping. The multiplicative and additive eFG variants
+are indistinguishable (neither clips, both give the same totals to four figures). Out of sample,
+across all 112 training blocks of the criterion, the attempt closure stays within 0.4% and the
+points ratio within 0.994-0.999. The target does what a target of expected points should: stint sd
+falls from 63.6 to 27.8 points per 100, team-game sd from 12.9 to 9.2. `tests/test_xpts.py` checks
+the closure against possessions simulated from its own model.
+
+**And it loses**, on the same criterion that selected the free-throw term. `scripts/44_yoy_shot.py`,
+28 held-out seasons:
+
+| target | c_def | stint K=2 | game K=2 | stint K=4 | game K=4 | sd_off | sd_def |
+|---|---|---|---|---|---|---|---|
+| pts | 0 | 3627.97 | 113.31 | 3626.92 | 113.07 | 1.98 | 1.00 |
+| xpts_ft | 0 | 3627.83 | 113.24 | 3626.82 | 113.04 | 1.98 | 0.99 |
+| xshot (mult) | 0 | 3628.95 | 113.61 | 3627.89 | 113.34 | 1.90 | **0.72** |
+| xshot (add) | 0 | 3628.95 | 113.71 | 3627.97 | 113.57 | 1.91 | 0.73 |
+| pts | 0.5 | 3626.56 | 112.89 | 3625.95 | 112.76 | 1.98 | 1.36 |
+| xpts_ft | 0.5 | 3626.41 | 112.81 | 3625.85 | 112.73 | 1.98 | 1.35 |
+| xshot (mult) | 0.5 | 3627.06 | 112.92 | 3626.53 | 112.85 | 1.90 | 1.10 |
+
+Paired against raw points at K=2, `c_def = 0`: +1.02 at stint level (z +5.1, 4 of 28 seasons
+won), +0.32 at game level (z +1.8, 9 of 28). Against the free-throw term it is meant to extend, at
+game level: +0.40 (z +2.5, 8 of 28). Every row, both K, both `c_def`, both variants, same sign.
+
+**Why, measured.** A diagnostic variant with NO lineup shot-making -- league make rate by bucket,
+everything else as before -- scores 115.23 at game level against 113.61 for the lineup-scaled term
+and 113.31 for raw points (+1.96 against points, z +6.6, 2 of 28). So the ordering is
+
+    raw points  <  lineup-scaled shot term  <<  league-rate shot term
+
+Shot-making is a large, real signal: removing it costs about 15% of everything the ratings know.
+The lineup eFG% fit recovers most of it (the lineup-scaled term closes 80% of that gap) but not all,
+and the luck it removes does not pay for the rest. The place it shows is defense: the ratings'
+defensive spread falls 28% under the shot term (1.00 to 0.72) against 4% on offense. That is the
+factor fit's own asymmetry coming through -- eFG% selected `lam_ratio = 1.50`, defense shrunk
+harder than offense (section 15) -- so whatever shot suppression a defense has is passed to the
+target through a heavily shrunk lineup rate, while the points RAPM reads it straight off the makes.
+
+This is the re-parameterisation trap the handoff named, arriving in partial form. Conditioning on
+the first attempt keeps the bucket mix and the possessions that reached an attempt as data, but
+three quarters of expected points is `att1 * league make rate * lineup eFG`, and the lineup eFG is a
+shrunk, cross-fitted estimate. The target replaced a noisy realised outcome with a biased-toward-
+the-mean expected one, and for shot-making the bias costs more than the noise.
+
+**What generalises.** The free-throw term works because a free throw's outcome is a property of ONE
+identified player and is essentially unaffected by the defense, so the expectation is both sharp and
+complete. A field-goal attempt's outcome is a property of the shooter, four teammates and five
+defenders, and no lineup-level expected rate this project can fit reproduces it well enough to be
+substituted for the realised make. "Luck" at the possession level is not separable from skill with
+these tools; the counters were the right thing to build and the closure was the right thing to test,
+and the test says no.
+
+**Stage 5 is off.** It was conditional on stage 4 paying. Two things would be worth measuring before
+anyone revisits this, neither done:
+
+1. **The rebound piece alone.** Keep the realised first-attempt outcome and marginalise only the
+   continuation. This needs two counters the stints do not carry -- points scored on the first
+   attempt including its free throws, and whether it produced a rebound chance -- so it is a
+   `STINT_SCHEMA` bump and a 45-minute rebuild. It would say whether offensive-rebound luck is
+   separable even though shot luck is not.
+2. **A partial adjustment**, `y = pts - a * (pts - xpts)` with `a` in [0, 1]. Legal to select on the
+   criterion, but the value would then have to be reported on seasons not used to choose it.
+
+The chosen system is unchanged: **hybrid + xPTS(ft) at `c_def = 0`**.
