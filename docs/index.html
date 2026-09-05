@@ -9,8 +9,7 @@
   @media (prefers-color-scheme: dark) { :root { --line: #3a3a38; --muted: #a09f98; --accent: #3987e5; } }
   body { margin: 0; font: 15px/1.45 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
   main { max-width: 820px; margin: 0 auto; padding: 28px 20px 48px; }
-  h1 { font-size: 26px; margin: 0 0 4px; }
-  .sub { color: var(--muted); margin: 0 0 18px; }
+  h1 { font-size: 26px; margin: 0 0 16px; }
   .controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin-bottom: 14px; }
   label { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 6px; }
   select, input { font: inherit; padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; background: transparent; color: inherit; }
@@ -30,7 +29,6 @@
 <body>
 <main>
   <h1>OpenRAPM</h1>
-  <p class="sub">Player impact in points per 100 possessions, one rating per three-season block. Positive is good on both ends.</p>
   <div class="controls">
     <label>Block <select id="block"></select></label>
     <label>Min possessions <input id="minp" type="number" value="2000" min="0" step="500"></label>
