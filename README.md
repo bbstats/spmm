@@ -1,7 +1,7 @@
 # OpenRAPM
 
 Open player-impact ratings for the NBA, 1996-97 through 2025-26, in points per 100 possessions,
-one rating per player per three-season block. Live at <https://bbstats.github.io/spmm/>.
+one rating per player per three-season block. Live at <https://bbstats.github.io/openrapm/>.
 
 The point of the project is the **test**, not any one model: every architecture change is judged
 by whether it predicts the games of a season it never saw. Anyone is welcome to propose one; the
