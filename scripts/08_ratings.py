@@ -58,8 +58,21 @@ if po_path.exists():
 PRIOR = cfg.get("ratings_prior", {})
 USE_HYBRID = PRIOR.get("offense") == "player" and PRIOR.get("defense") == "none"
 USE_BOOST = bool(PRIOR.get("boost", True))
+# The role-prior chain (FINDINGS 19): no linear box prior at all; the per-player offset carries the
+# Simple SPM (role and age) on both sides plus the boosted box prior on the sides set to "gbdt".
+USE_CHAIN = PRIOR.get("role_prior") == "spm"
+CHAIN_SIDES = tuple(s for s, key in (("O", "offense"), ("D", "defense")) if PRIOR.get(key) == "gbdt")
+chain_ctx = None
+if USE_CHAIN:
+    from eracoef.holdout import Context
+    from eracoef.spm import chain_offset
+    chain_ctx = Context.load(cfg)
+    if chain_ctx.rpanel is None or chain_ctx.role_inputs is None:
+        raise SystemExit("ratings_prior.role_prior is 'spm' but outputs/role_panel.parquet or data/cache/roles.parquet "
+                         "is missing; run scripts/49_role_panel.py")
+    chain_fn = chain_offset(CHAIN_SIDES, mode=str(cfg.get("gbdt", {}).get("mode", "full")))
 panel = None
-if USE_HYBRID:
+if USE_HYBRID and not USE_CHAIN:
     xp = OUT / "xrapm_panel.parquet"
     if not xp.exists():
         raise SystemExit(f"{xp} is missing; run scripts/27_xrapm_prior.py first")
@@ -100,7 +113,14 @@ for w in window_seasons(cfg):
     # the target the ratings are fit to: "xpts_ft" replaces made free throws by the shooter's
     # expectation (FINDINGS.md sections 16-18: the one luck adjustment that beat actual points)
     wd = build_window(seasons, cfg, target=PRIOR.get("target", "pts"))
-    if USE_HYBRID:
+    chain = None
+    if USE_CHAIN:
+        # the whole prior is the offset; the block's own window is the only label to keep it off
+        beta, beta_po = np.zeros(2 * nf), None
+        chain = np.asarray(chain_fn(seasons, chain_ctx, wd), dtype=float)
+        m_ = wd.spec.n_ps
+        chain_parts = (chain[:m_], chain[m_:])
+    elif USE_HYBRID:
         beta = hybrid_beta(panel, FEATS, lab)
         # the playoff delta was fit as a change in the TEAM-priced coefficients; apply it to the
         # offensive half only, or the defensive half stops being zero and the playoff variant
@@ -115,7 +135,8 @@ for w in window_seasons(cfg):
     names = player_names(season_box(seasons, ["RS"], cfg),
                          pd.concat([season_names(s, "RS", cfg) for s in seasons], ignore_index=True))
     r = player_ratings_table(wd, beta, cfg, seasons, beta_po=beta_po, names=names,
-                             prior_offset=offset_for(wd, lab) if USE_BOOST else None)
+                             prior_offset=chain if USE_CHAIN else (offset_for(wd, lab) if USE_BOOST else None),
+                             prior_parts=chain_parts if USE_CHAIN else None)
     # A second fit for the DEFENSIVE side on its own target (config ratings_prior.defense_target):
     # "x3def" replaces every opponent three-point make by 3 x the shooter's padded 3P%, so the
     # defenders' coefficients are not charged for whether an open three dropped (FINDINGS.md 18).
@@ -126,7 +147,8 @@ for w in window_seasons(cfg):
         wd_pts = wd if PRIOR.get("target", "pts") == "pts" else build_window(seasons, cfg)
         wd_d, rep_d = DEFENSE_TARGETS[DEF_TARGET](seasons, cfg, wd_pts)
         r_d = player_ratings_table(wd_d, beta, cfg, seasons, beta_po=beta_po, names=None,
-                                   prior_offset=offset_for(wd_d, lab) if USE_BOOST else None)
+                                   prior_offset=chain if USE_CHAIN else (offset_for(wd_d, lab) if USE_BOOST else None),
+                                   prior_parts=chain_parts if USE_CHAIN else None)
         dcols = [c for c in r_d.columns if "_def" in c]
         r = r.drop(columns=dcols).merge(r_d[["player_id", *dcols]], on="player_id", how="left")
         for part in ("prior", "u", "u_plain", "rapm_mm"):

@@ -1,0 +1,3 @@
+drag_before,drag_after,factor,n_side,applied,mode,side,exclude,n_rows,best_iteration
+0.004478098449544977,0.004478098449544977,1.0,0,False,residual,O,2009-2011,4974,57
+0.012700886805903311,0.012700886805903311,1.0,0,False,residual,D,2009-2011,4974,124

@@ -1344,3 +1344,239 @@ written down as the check on the scheme part, not built.
 `c_def = 0`** (`config.yaml` -> `ratings_prior.defense_target`, `rank_map` on `def3_p0`;
 `08_ratings.py` runs two fits per window). `22_vs_consensus.py` section 7 prints the
 per-component agreement so the next luck adjustment is read the same way.
+
+## 19. The role prior and the boosted box prior: the GBDT wins at game level, loses at stint level
+
+The owner's direction (HANDOFF item 6, refined in the planning session of 2026-09-05): the linear
+offensive box prior is too strong at the top of the 1997-99 board (Stockton over Jordan is the prior,
+not the floor) and era-flat, and defense has no prior at all. Replace both with a chain, per side and per
+window: unpenalised APM, a Simple SPM (a ridge of APM on role and age), the shipped ridge pulled toward
+it (RAPM_1), and a gradient-boosted model fit to RAPM_1 as the box prior. Test on the criterion against
+the board (`def3_p0`); report the consensus and the loss by group, gate on nothing but the criterion.
+
+### What was built (`roles.py`, `spm.py`, `gbdt_prior.py`, `systems.py`, scripts 49-50)
+
+* **Roles.** Per player-season-team from the V3 box files (each team's first five rows are its
+  starters, the rule the stint parser already used) and the stints: games, starts, minutes, on-floor
+  possessions and the team's season possessions; age per season from `leaguedashplayerbiostats` (one
+  request per season, complete for every player who played). `share` = a player's on-floor
+  possessions summed over his teams divided by ONE full team-season (the mean of his teams' totals),
+  so a missed game lowers it and a trade does not halve it; capped at 0.9. `gs_pct` = starts / games.
+* **APM** = the plugin ridge with beta 0 at penalty 100 (under 1% of the shipped 18,352). The Simple SPM
+  coefficients read the same at 30, 100 and 300 for every input whose coefficient is not near zero
+  (offense: share 7.97 / 7.66 / 6.79 per unit, starts share -5.61 / -5.53 / -5.30, age 2.47 / 2.47 /
+  2.40; defense share -3.64 / -3.73 / -3.62); the one large relative gap is the defensive starts-share
+  term, -0.90 / -0.76 / -0.51, a coefficient of half a point. `outputs/csv/spm_lambda_check.csv`.
+* **Simple SPM**: possession-weighted ridge (penalty 1 on standardised inputs) of APM on share, share^2,
+  gs_pct, gs_pct^2, age, age^2, age^3, fit leave-window-out. Possession-weighted sd of the role prior:
+  1.4-1.9 per 100 on offense, 0.7-0.9 on defense (`outputs/csv/role_panel_report.csv`). A player with
+  no possessions gets exactly his role level; a 10th man (shrinkage a = 0.04) sits almost on it.
+* **RAPM_1**: the shipped ridge with the SPM as `prior_offset`; residual sd 0.6 on offense, 1.0-1.3 on
+  defense. `outputs/role_panel.parquet` carries apm, spm, u, a and rapm1 = spm + u per player-window-
+  side, raw sign; `outputs/xrapm_panel.parquet` (the reference's input) is byte-identical, and
+  `def3_p0` reproduces `holdout_def3.parquet` to 1e-14.
+* **The GBDT** (chimeraboost, defaults, early stopping, rows weighted by possessions, the player as the
+  early-stopping group, leave-window-out with the excluded window kept out of every pooled target).
+  A row is a player in window W with W's centred rates and season; the target is his value POOLED over
+  his other windows. Two modes, because the first build counted the role level twice (trained on
+  RAPM_1, then added on top of the SPM: offensive scale 0.71 on the smoke test):
+  - `mspi_resid`: target u (RAPM_1 beyond the role prior), features rates + season, offset = SPM + GBDT;
+  - `mspi`: target rapm1, features rates + season + share, gs_pct, age, offset = the GBDT alone.
+* **Distributional drag** of each leave-window-out training set (the RLOOCV point): at most 0.05 per 100
+  in the residual mode, 22 of 56 sets counterbalanced at the 0.02 tolerance. Immaterial, as expected
+  for a target centred within every window; measured rather than assumed.
+* **BorutaShap on chimeraboost** (25 trials, exact SHAP through a shim; `outputs/csv/boruta_*.csv`).
+  Residual mode rejects `season` on both sides (the leftover beyond role and age has no era shape)
+  and offense keeps 9 rates outright with turnovers only tentative. Full mode accepts season, share
+  and gs_pct on both sides and age on offense, and rejects free-throw misses and turnovers. Accepted +
+  tentative + season went into `config.yaml -> gbdt.features_*`; only the rejected were dropped.
+
+### The ladder (28 held-out seasons, `--workers=4`, 322 s)
+
+Team-game level, points per 100, paired against `def3_p0` (112.86 / 112.56 at K=2 / K=4):
+
+| system | what it is | K=2 | K=4 | vs board K=2 | vs board K=4 | verdict |
+|---|---|---|---|---|---|---|
+| spm | role prior alone, both sides | 113.69 | 112.73 | +0.85 (z +2.5, 9/28) | +0.17 (z +0.7, 15/28) | flat |
+| mspi_resid | SPM + GBDT on the residual | 113.33 | 112.55 | +0.48 (z +1.5, 13/28) | -0.01 (z 0.0, 15/28) | flat |
+| mspi_resid_o | the same, offense only | 113.62 | 112.71 | +0.78 (z +2.4, 8/28) | +0.15 (z +0.6, 15/28) | flat |
+| **mspi** | the GBDT alone, both sides | **112.32** | **112.06** | **-0.55 (z -2.4, 19/28)** | **-0.52 (z -2.7, 21/28)** | **WINS** |
+| mspi_o | the GBDT on offense, SPM on defense | 112.62 | 112.19 | -0.24 (z -0.9, 17/28) | -0.37 (z -1.8, 19/28) | flat |
+
+At stint level every chain system loses: `mspi` +1.05 / +0.86 (z +3.0 / +2.7, 9 and 10 of 28),
+`spm` +3.3 / +1.9, `mspi_resid` +1.7 / +0.9. So the verdict is split by level for the first time: the
+stop rules say WINS at game level and loses at stint level. The owner selects on game level (sections
+16-17: ratings remove ~10% of game error and ~0.7% of stint error, and stint error is mostly binomial
+noise), but the two disagreeing is itself the finding and is not papered over here.
+
+Where the game-level gain sits (`--splits`, K=4, `mspi` minus the board): lineups with one or two
+players who changed team -0.67 (z -2.5, 18/28), all-established floors (4000+ training possessions)
+-0.59 (z -2.2), guard-heavy floors (0-2 bigs) -0.68 (z -2.0, 20/28). **Where it loses: floors with
+seven or more bench players, +1.73 per 100 at game level (z +3.3, 8/28) and +3.3 at stint level (z
++5.1), 18% of possessions**, and floors with a player the block never saw (+1.80, z +1.6). That is the
+loss-wise archetype read the owner asked for: the GBDT prior is better for rotation lineups and worse
+when the floor is mostly second units. (The first draft of this paragraph read that as garbage time;
+the second round below shows it is not: the chain is better on the garbage-time rows themselves.)
+The role prior alone (`spm`) loses in the same place (+1.70): the bench level it assigns is right on
+average and wrong when the floor is all bench.
+
+### What the diagnostics say
+
+* **Amplitude.** The board's offense is a little too wide (scale 0.94) and its defense too narrow
+  (1.13). `mspi` is the reverse on offense: **1.27, too narrow**, with defense 1.07. The SPM
+  systems are too wide on both sides (0.89-0.91 / 0.96-0.97).
+* **Rank curves (K=4, worst / middle / best offensive decile).** Board 0.81 / 0.93 / 1.03. `mspi`
+  **1.02 / 1.11 / 1.24**: the bottom is calibrated for the first time and the top is under-rated, the
+  no-prior star compression of section 18 in milder form (the box prior is now less than the residual
+  at the top). `spm` and `mspi_resid` 0.76 / 0.84 / 1.03-1.06: the role prior makes the bench end WORSE
+  than the linear box prior did. Defense (raw sign, best to worst): board 1.16 / 1.03 / 0.94,
+  `mspi` 1.09 / 0.99 / 0.92, flatter.
+* **Prior against residual** (possession-weighted sd, 1000+ possessions). 1997-99 offense: the board's
+  linear prior 1.69 against a residual of 0.40 (correlation with the rating 0.98, the Stockton problem);
+  `mspi` 1.15 against 0.67 (0.91); `spm` 1.75 against 0.63. 2024-26: board 1.95 / 0.45,
+  `mspi` 1.01 / 0.71. The GBDT prior is a third narrower and the on-court residual carries half
+  again as much of the rating.
+* **The 1997-99 top (`--top`).** Board: Jordan 5.27 (prior 4.31 + residual 0.96), Stockton 5.18
+  (4.62 + 0.56), Malone 5.04. `mspi`: Jordan 4.78 (3.16 + 1.62), Malone 4.25, Payton 3.51, Hill,
+  Hornacek, Miller, then Stockton 7th at 3.01 (1.17 + 1.84). The complaint that started this is
+  answered on the criterion's winner.
+* **Era dependence (`--pdp`, `outputs/csv/gbdt_pdp.csv`).** The value of moving a rate from its 10th to
+  its 90th percentile barely moves with the season: assists 0.14 (1998) to 0.16 (2025) on offense,
+  threes 0.26 to 0.25, offensive rebounds 0.19 to 0.17; blocks on defense 0.76 to 0.70. The season
+  feature is in the model and does little; Boruta agreed on the residual side.
+* **Consensus, read once (2024-26).** Board 0.883 total / 0.879 offense / 0.814 defense, bias 0.18.
+  `mspi` **0.772 / 0.778 / 0.785**, offensive spread 0.62 of the consensus's, bias 0.21;
+  `mspi_o` 0.789 / 0.780 / 0.744, bias 0.02; `spm` 0.815 / 0.771 / 0.737; `mspi_resid` 0.821 /
+  0.791 / 0.741. So the criterion's winner agrees a full 0.10 less with the outside metrics on offense
+  and a little less on defense, at the same signed archetype bias. Reported, not gated, per the
+  owner's ruling; but it is the largest consensus drop any winner on this criterion has carried.
+  Section 16's warning (a prior that predicts lineups by holding credit the split gets wrong) does not
+  fit the movers split here: the gain is largest with one or two movers and the no-mover floors are
+  +0.79 worse, the signature of an adjustment that travels with the player rather than with his
+  teammates.
+
+### The rank map on top, and the verdict against what ships
+
+The board as it ships is `rankmap_def3_p0` (112.54 / 112.33 at K=2 / K=4), so the candidate has to
+beat that, not the unmapped `def3_p0`. `--rankmap=outputs/holdout_chain_rank.parquet`, leave-one-
+season-out maps for every system, 28 seasons:
+
+| system | game K=2 | game K=4 | vs rankmap_def3_p0, game | vs rankmap_def3_p0, stint | verdict |
+|---|---|---|---|---|---|
+| rankmap_def3_p0 (ships) | 112.54 | 112.33 | | | |
+| mspi | 112.32 | 112.06 | -0.23 (z -1.2, 17/28) / -0.29 (z -1.8, 21/28) | +1.43 (z +4.9) / +1.12 (z +4.2) | flat / loses |
+| rankmap_mspi | 112.64 | 112.40 | +0.09 (z +0.6) / +0.06 (z +0.4) | +0.66 (z +2.5) / +0.65 (z +2.6) | flat / loses |
+| rankmap_mspi_resid | 112.63 | 112.14 | +0.10 (z +0.3) / -0.19 (z -0.9) | +1.49 / +0.80 | flat / loses |
+
+Two things, both unexpected and both measured:
+
+* **The rank map does not add to the GBDT prior.** On the board it is worth -0.32 / -0.23 at game
+  level (z -4, 24 and 21 of 28) and -0.38 / -0.25 at stint level; on `mspi` it costs +0.32 /
+  +0.35 at game level and buys -0.77 / -0.47 at stint level. The map's own diagnostics are what they
+  should be (after it, the offensive scale is 1.03 and the decile slopes 0.98-1.05), so it is not a
+  broken map; the GBDT prior's miscalibration is at the very top (the best decile wants 1.24, the
+  next 1.18) and a piecewise-linear map fitted through decile means extrapolates that slope onto the
+  handful of stars beyond the last decile's mean, where the season-to-season variance of who they are
+  is largest. The linear prior's curve was the other way round (the bottom wrong, the top right), and
+  the bottom has many players.
+* **Against the shipped board the chain is flat at game level and loses at stint level.** The
+  0.5 per 100 the GBDT prior takes from the unmapped board is the same 0.3-0.5 the rank map already
+  takes, and the two do not stack. The stop rules say: not a winner. `config.yaml` is unchanged,
+  `08_ratings.py` carries the switch (`ratings_prior.role_prior: spm`, `offense` / `defense: gbdt`,
+  `gbdt.mode`) and does nothing with it.
+
+**Verdict: negative against what ships, positive against the unmapped board, and the diagnostics
+the owner asked for are answered.** The Stockton problem is a property of the linear prior's
+amplitude and a GBDT prior of a third less spread removes it (Jordan first by 0.5, Stockton seventh)
+while predicting held-out games as well as the map does; the era term is in the model and worth
+almost nothing (an assist 0.14 to 0.16 per 100 across 28 seasons); the role prior on its own is worse
+than the linear box prior at the bench end (0.76 against 0.81) and loses in garbage time; and the
+consensus agreement of the GBDT board is 0.78 against 0.88, the largest drop any criterion winner has
+carried. What would move it: a prior that is the GBDT in the middle and the linear prior's amplitude
+at the top (the map cannot do it from decile means), or the stint-level loss understood -- every
+chain system loses at stint level by 1-3 per 100 while gaining or holding at game level, which says
+the chain's ratings are right in sum over a game and wrong on the possession-level mix of who is on
+the floor, and the 7+-bench split (+1.7 game, +3.3 stint) says where. (Stint level was dropped from
+the verdict by the owner after this was written; the second round below is game level only.)
+
+### Second round (game level only, per the owner): garbage time, role calibration, the scale, the APM target, the replacement level
+
+The owner's ruling after the first round: game-level error is all that matters, the rank work is
+dropped, and the chain is called `mspi` (multi-stage prior-informed RAPM; my SPM-plus-residual
+variant is `mspi_resid`). Five reads, in the order they were run. The 7+-bench loss was the lead.
+
+**1. It is not garbage time.** `--splits=gt` (rows the stint parser flags, 5% of possessions): the
+chain is BETTER on them, -1.78 per 100 at game level (z -2.1, 20/28), and better on competitive rows
+(-0.33). Down-weighting garbage time in the fit (`gt_weight` 0.5 and 0, board and chain alike,
+`def3_gt05` / `mspi_gt05` / `..._gt0`) moves nothing: the chain at half weight is -0.51 against the
+board instead of -0.55, the board at half weight is +0.02 against itself. The 7+-bench floors (18% of
+possessions) are competitive minutes with second units on the floor, and the sentence in the first
+round that read them as garbage time was wrong.
+
+**2. Calibration by role** (`scripts/51_garbage.py`, K=4, 28 seasons, `outputs/csv/garbage_slopes.csv`):
+regress the held-out stints on the lineup contributions split by the role of the players on the floor
+(deep bench = under 10% of the team's possessions that season; bench = starts share under 0.5;
+starters), per side. The multiplier each group's ratings want, competitive rows:
+
+| side | group | board | mspi | spm |
+|---|---|---|---|---|
+| offense | starters | 1.01 | **1.20** (z +11.6) | 1.02 |
+| offense | bench | **0.85** (z -7.1) | 1.05 | 0.82 (z -8.2) |
+| offense | deep bench | 1.20 (z +3.7) | **2.10** (z +11.4) | 1.36 (z +6.5) |
+| defense | starters | 1.10 (z +5.3) | 1.05 (z +3.0) | 1.03 |
+| defense | bench | 1.10 (z +3.2) | 1.04 | 1.00 |
+| defense | deep bench | 1.14 | 1.01 | 1.10 |
+
+So the chain fixes the bench end the board gets wrong (0.85 -> 1.05) and is calibrated on defense
+in every group, but its offensive prior is too timid for starters (1.20) and half as spread as it
+should be among deep-bench players (2.10), whose rating is almost entirely the prior. That is the
+shrunk training target showing: a deep-bench player's RAPM_1 is nearly all role level, so the GBDT
+cannot learn any spread among them. In garbage-time rows every group of every system is
+miscalibrated (bench defense 0.4-0.5, starters 0.2-0.4): those minutes barely relate to ratings.
+
+**3. Scaling the prior does not help.** The GBDT offset times 1.25 / 1.5 / 2.0 before the ridge
+(`mspi_s125` ...): 112.38 / 112.66 / 113.84 at K=2 against 112.32 unscaled; the scale that calibrates
+the offense (1.5, scale_off 1.03) is 0.3 worse at game level. Amplitude is not the lever.
+
+**4. Training on unshrunk APM** instead of RAPM_1 (`mspi_apm`, same features): the offensive scale
+comes right (1.08 / 1.05) but the defensive one goes wide (0.90), and the game-level error is the same
+as the chain's (112.40 / 112.14 against 112.32 / 112.06). `mspi_mix` (APM-trained offense,
+RAPM_1-trained defense) is calibrated on both sides (1.06 / 1.01) and again the same error
+(112.15 at K=4). Every scaled APM variant loses.
+
+**5. The replacement level is the lever, and it belongs to the board too.** The criterion's rule
+gives a player the training block never saw the average player's 0. Under the chain that makes an
+unseen rookie far better than the bench players around him (their role level is -2 to -5), and the
+"none (0)" exposure group is where the chain lost +2.0 per 100. `ReplacementSystem` gives absent
+players the possession-weighted mean rating of the block's players under 500 possessions, per side,
+from training data only.
+
+| system | game K=2 | game K=4 | vs the board as it ships (rankmap_def3_p0) |
+|---|---|---|---|
+| rankmap_def3_p0 (ships) | 112.54 | 112.33 | |
+| **rankmap_def3_p0_rep** (ships + replacement level) | **112.34** | **112.20** | **-0.20 (z -4.5, 21/28) / -0.14 (z -4.5, 22/28): WINS** |
+| mspi_rep | 112.11 | 111.91 | -0.45 (z -2.4, 18/28) / -0.44 (z -2.8, 22/28): WINS |
+| mspi_mix_rep | 112.13 | 112.02 | -0.44 (z -2.8, 18/28) / -0.34 (z -2.8, 23/28): WINS |
+| mspi_rep vs rankmap_def3_p0_rep | | | -0.24 (z -1.2, 16/28) / -0.30 (z -1.9, 20/28): flat |
+| mspi_mix_rep vs rankmap_def3_p0_rep | | | -0.24 (z -1.5, 17/28) / -0.20 (z -1.7, 17/28): flat |
+
+Two results. The replacement level is a free, legal improvement to the shipped board: -0.20 / -0.14
+per 100 at z -4.5, consensus identical (it touches no rated player), the "none (0)" floors -4.1
+better. And once the board has it too, the chain's edge is what it has been all day: 0.2-0.3 per 100
+at game level, 16-20 of 28 seasons, z -1.2 to -1.9. Consistent, not significant at both K, not a
+winner under the stop rules.
+
+**State at the end of the second round.** The chain has now been given every fair advantage
+measured (the calibration it wanted, an unshrunk target, the replacement level) and the board has
+been given the one that helps it. The remaining gap is small and stable. What has NOT been tried:
+the chain with the board's linear prior on offense above the bench (the starters' 1.20 is the linear
+prior's territory, section 18's 1.01 at the top), and a GBDT that can see the deep bench's spread
+(a target that is not the ridge's shrunk output for them: APM pooled, which `mspi_apm` did on both
+sides and which fixed the offense but widened the defense; `mspi_mix` fixed both scales and did not
+move the error). The consensus read of `mspi_mix_rep`: 0.784 / 0.735 / 0.785, archetype bias -0.02.
+
+**Shipped (owner's decision, game level only): `mspi`.** After the second round the owner ruled that
+game-level error is the whole test and shipped the multi-stage chain as it stood: 112.06 at K=4
+against 112.33 for the previous board, 20 of 28 seasons, consensus 0.772 / 0.778 / 0.785. The rank
+map is off (it costs 0.3 per 100 on this prior). The replacement level is an evaluation-time rule and
+changes no rating. The site is one page (docs/index.html) and the project is called OpenRAPM.

@@ -167,7 +167,7 @@ def hybrid_beta(panel, features, window_label_, min_poss=2000, pen=5.0) -> np.nd
 
 
 def player_ratings_table(wd, beta, cfg, seasons, beta_po=None, names=None,
-                         prior_offset=None) -> pd.DataFrame:
+                         prior_offset=None, prior_parts=None) -> pd.DataFrame:
     """Per player-season ratings from the plug-in fit at the fixed lambda.
 
     prior  = the player's padded full-season rates times the window's coefficients, centred on the
@@ -180,6 +180,9 @@ def player_ratings_table(wd, beta, cfg, seasons, beta_po=None, names=None,
     `prior_offset` is the per-Z-column boosted correction in raw sign.  Passing it makes `u` the
     residual refit *given* the correction, which is what scripts/10_boost.py ships.  Adding a
     correction on top of a residual that was fit without it double-counts whatever it explains.
+    `prior_parts` = (offense, defense) halves of an offset that IS the prior (the role-prior chain of
+    spm.py / gbdt_prior.py, raw sign): they are added into `prior_off` / `prior_def` so that
+    `rating = prior + u` holds with no linear box term at all.
     """
     kw = dict(lam=float(cfg["lam_plugin"]), lam_ratio=float(cfg["lam_ratio_plugin"]),
               pad_target=cfg["pad_target"])
@@ -198,6 +201,9 @@ def player_ratings_table(wd, beta, cfg, seasons, beta_po=None, names=None,
     df["poss_def"] = exp.season_poss_def_
     df["prior_off"] = ro @ beta[:nf]
     df["prior_def"] = -(rd @ beta[nf:])
+    if prior_parts is not None:
+        df["prior_off"] = df["prior_off"] + np.asarray(prior_parts[0], dtype=float)
+        df["prior_def"] = df["prior_def"] - np.asarray(prior_parts[1], dtype=float)     # raw sign in, flipped out
     df["u_off"] = mm.u_[:m]
     df["u_def"] = -mm.u_[m:]
     df["u_plain_off"] = u_plain[:m]

@@ -245,3 +245,6 @@ outputs/free_scale_ratings.parquet
 outputs/investigate_rapm.parquet
 outputs/remedy.parquet
 outputs/diagnostic_payload.json
+
+# run logs and render checks
+outputs/logs/

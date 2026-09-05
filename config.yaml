@@ -37,8 +37,11 @@ lam_buckets: {}       # e.g. {low_poss: 2.0}; only add after the calibration-by-
 # weakest four penalties and then declines, so it has no interior optimum and just runs to the weak
 # end, because the benchmark shares the estimate's blind spot.  See scripts/33_hybrid.py.
 ratings_prior:
-  offense: player
-  defense: none
+  offense: gbdt
+  defense: gbdt
+  role_prior: spm    # 'spm': the role-and-age prior chain of src/eracoef/spm.py (APM -> Simple SPM -> ridge);
+                      # with offense/defense 'gbdt' the box prior is the boosted one (gbdt_prior.py).  Flip only
+                      # when scripts/48_ladder.py says WINS against def3_p0 at both K and both levels.
   boost: false        # the boosted correction is worth 0 on total and -0.020 on offense (30_ladder)
   target: xpts_ft     # made free throws replaced by the shooter's padded expectation (design.TARGETS);
                       # the one luck adjustment that beat actual points out of season (FINDINGS 16-18)
@@ -53,10 +56,8 @@ ratings_prior:
   # out-of-season decile slopes, applied to the finished ratings.  Good players are calibrated,
   # bad ones exaggerated (worst offensive decile wants x0.77); the map fixes that and won the
   # leave-one-season-out test by 0.4 points per 100 at team-game level.  Rank-preserving per side.
-  rank_map:
-    table: outputs/holdout_def3_rank.parquet    # scripts/45_holdout.py --systems=hybrid_xft,def3_p0 --rank --tag=def3
-    system: def3_p0                             # the board's system: offense xpts_ft, defense x3def
-    k: 4
+  # The rank map is OFF for the multi-stage board (FINDINGS 19: it costs 0.3 per 100 on this prior).
+  rank_map: null
 # The random effect unit: "window" gives one player effect per 3-season window, "season" one per
 # player-season (the original spec).  Possession thresholds below are in the unit's own scale.
 player_unit: window
@@ -110,10 +111,38 @@ holdout:
                          # script used); "full" = the whole fixed block (margin, garbage time, playoffs)
   rank_bins: 10          # rank-calibration deciles
   rank_min_poss: 1000    # a player needs this many training possessions to be ranked
+  workers: 4             # held-out seasons run across this many processes (threads pinned to 12 // workers)
+  bigs_edges: [0, 3, 4, 5, 11]      # --splits=bigs: number of top-tercile-bigness players among the ten
+  bench_edges: [0, 3, 5, 7, 11]     # --splits=bench: number of bench players (gs_pct below bench_gs_pct) among the ten
+  bench_gs_pct: 0.5
   exposure_edges: [0, 1, 500, 1500, 4000, 1000000000]   # the --splits=exposure bins (smallest exposure on the floor)
   consensus:
     window: [2024, 2026]
     min_poss: 1000
+
+# The role prior and the boosted box prior (src/eracoef/roles.py, spm.py, gbdt_prior.py; FINDINGS 19).
+roles:
+  cache: data/cache/roles.parquet   # per player-season-team: games, starts, minutes, on-floor and team possessions, age
+  share_cap: 0.9                    # share of one full team-season of possessions, capped
+spm:
+  apm_lam: 100            # the APM penalty: under 1% of lam_plugin, so nobody is pulled toward zero by much
+  apm_lam_ratio: 1.0
+  apm_check_lams: [30, 100, 300]    # 49_role_panel.py --check: SPM coefficients must agree across these
+  pen: 1.0                # ridge on the seven standardised role inputs
+  min_poss: 500           # a player-window needs this many possessions to train the SPM
+gbdt:
+  mode: full              # what scripts/08_ratings.py uses when it ships: "residual" = Simple SPM + a GBDT trained on
+                          # the residual beyond it (u); "full" = a GBDT trained on RAPM_1 with the role inputs, alone
+  # scripts/50_boruta.py, 25 trials, 2026-09-05: accepted + tentative + season (rejected dropped; season kept by design)
+  features_O: [ast, blk, drb, fg2_miss, fg2m, fg3_miss, fg3m, ft_miss, ftm, orb, pf, stl, tov, season]   # rejected: season; tentative: drb, fg3_miss, pf, tov
+  features_D: [ast, blk, drb, fg2_miss, fg2m, fg3_miss, fg3m, ftm, pf, stl, tov, season]   # rejected: ft_miss, orb, season; tentative: fg3m, ftm, pf
+  features_full_O: [age, ast, blk, drb, fg2_miss, fg2m, fg3_miss, fg3m, ftm, gs_pct, orb, pf, season, share, stl]   # rejected: ft_miss, tov; tentative: fg2_miss, orb
+  features_full_D: [age, ast, blk, drb, fg2_miss, fg2m, fg3_miss, fg3m, ftm, gs_pct, orb, pf, season, share, stl]   # rejected: ft_miss, tov; tentative: age, ftm, orb
+  drag_tol: 0.02          # counterbalance a leave-window-out training set whose weighted mean drifts more than this
+  boruta_trials: 50
+  seed: 0
+  thread_count: 3
+  params: {}              # chimeraboost overrides; empty = library defaults with early stopping
 
 paths:
   raw: data/raw
@@ -123,5 +152,6 @@ paths:
   figs: outputs/figs
   lambda_file: outputs/lambda.yaml
   coefs: outputs/coefs.parquet
+  role_panel: outputs/role_panel.parquet
 
 run_tags: [base, lam_x3, lam_div3, rolling, gt_half, gt_zero, margin_bins]

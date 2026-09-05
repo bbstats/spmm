@@ -37,8 +37,9 @@ Conventions, applied identically to every system so none is favoured:
 """
 from __future__ import annotations
 
+import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Protocol
 
@@ -56,13 +57,17 @@ RESULT_COLUMNS = ["held_out", "k", "train", "system", "lam", "split", "group", "
 # ---------------------------------------------------------------------------------------- ratings
 @dataclass(frozen=True)
 class Ratings:
-    """One row per player: `o`, `d` in raw sign, `poss` = training regular-season possessions."""
+    """One row per player: `o`, `d` in raw sign, `poss` = training regular-season possessions.
+    `fill_o` / `fill_d` are what a player ABSENT from the training block scores: 0 (the average player,
+    the criterion's default) unless a system sets a replacement level (ReplacementSystem)."""
     df: pd.DataFrame
+    fill_o: float = 0.0
+    fill_d: float = 0.0
 
     def aligned(self, player_ids) -> pd.DataFrame:
-        """The ratings in the order of `player_ids`; absent players are the average player (0)."""
+        """The ratings in the order of `player_ids`; absent players score the fill (0 = the average player)."""
         r = pd.DataFrame({"player_id": np.asarray(player_ids)}).merge(self.df, on="player_id", how="left")
-        return r.fillna({"o": 0.0, "d": 0.0, "poss": 0.0})
+        return r.fillna({"o": float(self.fill_o), "d": float(self.fill_d), "poss": 0.0})
 
 
 class System(Protocol):
@@ -93,8 +98,16 @@ class Context:
     current_h: int | None = None
     current_k: int | None = None
     cache_size: int = 4
+    roles: pd.DataFrame | None = None          # data/cache/roles.parquet (roles.build_roles)
+    role_inputs: pd.DataFrame | None = None    # roles.player_season_inputs(roles)
+    rpanel: pd.DataFrame | None = None         # outputs/role_panel.parquet (scripts/49_role_panel.py)
+    gbdt: object | None = None                 # gbdt_prior.GBDTPrior, mode "residual", models cached per exclusion set
+    mspi: object | None = None            # the same in mode "full" (the GBDT as the whole prior)
+    mspi_apm: object | None = None        # mode "full" trained on APM (unshrunk) instead of RAPM_1
     _cache: dict = field(default_factory=dict, repr=False)
     _teams: dict = field(default_factory=dict, repr=False)
+    _bigness: dict = field(default_factory=dict, repr=False)
+    _bench: dict = field(default_factory=dict, repr=False)
     reports: list = field(default_factory=list, repr=False)
 
     @classmethod
@@ -105,7 +118,45 @@ class Context:
         if (out / "coefs.parquet").exists():
             coefs = pd.read_parquet(out / "coefs.parquet")
             base = coefs[coefs.run == "base"]
-        return cls(cfg=cfg, panel=panel, base=base, loader=loader or default_loader)
+        ctx = cls(cfg=cfg, panel=panel, base=base, loader=loader or default_loader)
+        from .roles import player_season_inputs, roles_path
+        rp = roles_path(cfg)
+        if rp.exists():
+            ctx.roles = pd.read_parquet(rp)
+            ctx.role_inputs = player_season_inputs(ctx.roles, cap=float(cfg.get("roles", {}).get("share_cap", 0.9)))
+        pp = Path(cfg["_root"]) / cfg.get("paths", {}).get("role_panel", "outputs/role_panel.parquet")
+        if pp.exists():
+            ctx.rpanel = pd.read_parquet(pp)
+            from .gbdt_prior import GBDTPrior
+            ctx.gbdt = GBDTPrior(ctx.rpanel, cfg, mode="residual")
+            ctx.mspi = GBDTPrior(ctx.rpanel, cfg, mode="full")
+            ctx.mspi_apm = GBDTPrior(ctx.rpanel, cfg, mode="full", target_col="apm")   # trained on unshrunk APM
+        return ctx
+
+    def bigness(self, season: int, min_minutes: float = 500.0) -> dict:
+        """player_id -> True if in the top tercile of the big-man score (orb + blk + 0.3 drb - 0.5 ast - 0.4 fg3m
+        per 36, the definition of scripts/22_vs_consensus.py) among players with `min_minutes` that season."""
+        if season not in self._bigness:
+            from .boxtable import season_box
+            b = season_box([season], ["RS"], self.cfg)
+            g = b.groupby("player_id")[["orb", "blk", "drb", "ast", "fg3m", "minutes"]].sum()
+            g = g[g.minutes >= min_minutes]
+            per36 = g[["orb", "blk", "drb", "ast", "fg3m"]].div(g.minutes.clip(lower=1), axis=0) * 36
+            score = per36.orb + per36.blk + 0.3 * per36.drb - 0.5 * per36.ast - 0.4 * per36.fg3m
+            cut = float(score.quantile(2 / 3)) if len(score) else np.inf
+            self._bigness[season] = {int(k): bool(v >= cut) for k, v in score.items()}
+        return self._bigness[season]
+
+    def bench(self, season: int) -> dict:
+        """player_id -> True if his games-started share that season is below cfg holdout.bench_gs_pct."""
+        if season not in self._bench:
+            thr = float(self.cfg.get("holdout", {}).get("bench_gs_pct", 0.5))
+            if self.role_inputs is None:
+                self._bench[season] = {}
+            else:
+                r = self.role_inputs[(self.role_inputs.season == season) & (self.role_inputs.games > 0)]
+                self._bench[season] = {int(k): bool(v < thr) for k, v in zip(r.player_id, r.gs_pct)}
+        return self._bench[season]
 
     @property
     def features(self) -> list:
@@ -198,43 +249,56 @@ def beta_mixed(c_def: float) -> Callable:
 
 
 # ---------------------------------------------------------------------------------------- systems
-def ratings_from_fit(wd: WindowData, pipe, beta) -> Ratings:
-    """Per-player offense and defense from a plug-in fit: the padded rates times the prior, plus the residual."""
+def ratings_from_fit(wd: WindowData, pipe, beta, offset=None) -> Ratings:
+    """Per-player offense and defense from a plug-in fit: the padded rates times the prior, plus the per-player
+    offset when one was carried into the fit, plus the residual.  `prior_o` / `prior_d` keep the prior part."""
     exp, mm = pipe["exposure"], pipe["mm"]
     nf = len(beta) // 2
     m = wd.spec.n_ps
     ro = exp.season_rates_ - exp.means_o_ / 5.0
     rd = exp.season_rates_d_ - exp.means_d_ / 5.0
+    po, pdd = ro @ beta[:nf], rd @ beta[nf:]
+    if offset is not None:
+        off = np.asarray(offset, dtype=float)
+        po, pdd = po + off[:m], pdd + off[m:]
     df = pd.DataFrame({"player_id": wd.spec.ps_table["player_id"].to_numpy(),
-                       "o": ro @ beta[:nf] + mm.u_[:m], "d": rd @ beta[nf:] + mm.u_[m:],
-                       "poss": np.asarray(exp.season_poss_off_, dtype=float)})
+                       "o": po + mm.u_[:m], "d": pdd + mm.u_[m:],
+                       "poss": np.asarray(exp.season_poss_off_, dtype=float), "prior_o": po, "prior_d": pdd})
     if df.player_id.duplicated().any():
         # player-SEASON units (player_unit: season): one rating per player, pooled by possessions
         w = df.poss.clip(lower=1.0)
-        df = (df.assign(o=df.o * w, d=df.d * w, w=w).groupby("player_id", as_index=False)
-              .agg(o=("o", "sum"), d=("d", "sum"), poss=("poss", "sum"), w=("w", "sum")))
-        df["o"], df["d"] = df.o / df.w, df.d / df.w
+        df = (df.assign(o=df.o * w, d=df.d * w, prior_o=df.prior_o * w, prior_d=df.prior_d * w, w=w)
+              .groupby("player_id", as_index=False)
+              .agg(o=("o", "sum"), d=("d", "sum"), poss=("poss", "sum"), prior_o=("prior_o", "sum"),
+                   prior_d=("prior_d", "sum"), w=("w", "sum")))
+        for c in ("o", "d", "prior_o", "prior_d"):
+            df[c] = df[c] / df.w
         df = df.drop(columns="w")
     return Ratings(df)
 
 
 @dataclass
 class PluginSystem:
-    """The ratings fit every script in this project has used: a box prior as an offset, one penalty."""
+    """The ratings fit every script in this project has used: a box prior as an offset, one penalty.
+
+    `offset(train, ctx, wd) -> (2 * n_ps,)` adds a per-player prior in raw sign on top of the linear box term
+    (`plugin_fit(prior_offset=...)`): the role prior and the boosted box prior of spm.py / gbdt_prior.py."""
     name: str
     target: str | Callable = "pts"
     beta: Callable = beta_hybrid
     lam: float | None = None
     lam_ratio: float | None = None
+    offset: Callable | None = None
 
     def fit(self, train, ctx: Context) -> Ratings:
         cfg = ctx.cfg
         wd = ctx.design(train, self.target)
         b = self.beta(ctx.labels(train), ctx)
+        off = None if self.offset is None else np.asarray(self.offset(train, ctx, wd), dtype=float)
         pipe = plugin_fit(wd, b, lam=float(cfg["lam_plugin"] if self.lam is None else self.lam),
                           lam_ratio=float(cfg["lam_ratio_plugin"] if self.lam_ratio is None else self.lam_ratio),
-                          pad_target=cfg["pad_target"])
-        return ratings_from_fit(wd, pipe, b)
+                          pad_target=cfg["pad_target"], prior_offset=off)
+        return ratings_from_fit(wd, pipe, b, offset=off)
 
 
 @dataclass
@@ -245,11 +309,14 @@ class SplitSystem:
     defense: System
 
     def fit(self, train, ctx: Context) -> Ratings:
-        o = self.offense.fit(train, ctx).df[["player_id", "o", "poss"]]
-        d = self.defense.fit(train, ctx).df[["player_id", "d", "poss"]].rename(columns={"poss": "poss_d"})
+        fo = self.offense.fit(train, ctx).df
+        fd = self.defense.fit(train, ctx).df
+        o = fo[["player_id", "o", "poss", *([c for c in ("prior_o",) if c in fo.columns])]]
+        d = fd[["player_id", "d", "poss", *([c for c in ("prior_d",) if c in fd.columns])]].rename(columns={"poss": "poss_d"})
         r = o.merge(d, on="player_id", how="outer")
         r["poss"] = r.poss.fillna(r.poss_d)
-        return Ratings(r.fillna({"o": 0.0, "d": 0.0, "poss": 0.0})[["player_id", "o", "d", "poss"]])
+        cols = ["player_id", "o", "d", "poss", *([c for c in ("prior_o", "prior_d") if c in r.columns])]
+        return Ratings(r.fillna({c: 0.0 for c in cols if c != "player_id"})[cols])
 
 
 @dataclass
@@ -285,6 +352,24 @@ class RankMappedSystem:
             f = fit_rank_map(self.rank, self.inner.name, side, k, exclude_h=ctx.current_h)
             r[side] = f(r[side].to_numpy())
         return Ratings(r)
+
+
+@dataclass
+class ReplacementSystem:
+    """`inner` with a replacement level for players the training block never saw: the possession-weighted
+    mean rating of the block's low-exposure players (under `max_poss` training possessions), per side.
+    Uses no held-out data; the criterion's default gives an unseen rookie the average player's 0."""
+    name: str
+    inner: System
+    max_poss: float = 500.0
+
+    def fit(self, train, ctx: Context) -> Ratings:
+        r = self.inner.fit(train, ctx)
+        low = r.df[(r.df.poss > 0) & (r.df.poss < self.max_poss)]
+        if len(low) == 0:
+            return r
+        w = low.poss.to_numpy(dtype=float)
+        return Ratings(r.df, fill_o=float(np.average(low.o, weights=w)), fill_d=float(np.average(low.d, weights=w)))
 
 
 @dataclass
@@ -392,7 +477,7 @@ def score(p: Prediction, mask=None) -> dict:
     tg_base, _ = team_game_mse(y, p.base_pred[idx], p.poss[idx], p.game_idx[idx], p.is_home_off[idx])
     return dict(n=float(w.sum()), mse=wmse(p.pred[idx]), base=wmse(p.base_pred[idx]), calib=wmse(Ac @ cc),
                 calib_side=wmse(A2 @ c2), scale=float(cc[-1]), scale_off=float(c2[-2]), scale_def=float(c2[-1]),
-                covered=float((p.rat.o.to_numpy() != 0.0).mean()), tg=tg, tg_base=tg_base, tg_n=tg_n)
+                covered=float((p.rat.poss.to_numpy() > 0.0).mean()), tg=tg, tg_base=tg_base, tg_n=tg_n)
 
 
 # ---------------------------------------------------------------------------------------- splits
@@ -433,7 +518,44 @@ def by_exposure(p: Prediction, wd_h: WindowData, ctx: Context, h: int, train: li
     return np.asarray(labels, dtype=object)[b]
 
 
-SPLITS = {"movers": by_movers, "exposure": by_exposure}
+def _count_split(flag: np.ndarray, wd_h: WindowData, edges, what: str) -> np.ndarray:
+    """Rows binned by how many of the ten on the floor carry `flag`, with edges like [0, 3, 4, 5, 11]."""
+    m = wd_h.spec.n_ps
+    edges = [float(e) for e in edges]
+    labels = []
+    for a, b in zip(edges[:-1], edges[1:]):
+        a, b = int(a), int(b)
+        labels.append(f"{a} {what}" if b == a + 1 else (f"{a}+ {what}" if b > 10 else f"{a}-{b - 1} {what}"))
+    n = wd_h.X[:, :2 * m] @ np.tile(np.asarray(flag, dtype=float), 2)
+    b = np.clip(np.digitize(n, edges) - 1, 0, len(labels) - 1)
+    return np.asarray(labels, dtype=object)[b]
+
+
+def by_bigs(p: Prediction, wd_h: WindowData, ctx: Context, h: int, train: list) -> np.ndarray:
+    """How many of the ten on the floor are big men (top tercile of the big-man score in season H).
+    The loss-wise archetype check: is a system worse where the bigs are, not just tilted toward them."""
+    big = ctx.bigness(h)
+    ids = wd_h.spec.ps_table["player_id"].to_numpy()
+    flag = np.array([1.0 if big.get(int(q), False) else 0.0 for q in ids])
+    return _count_split(flag, wd_h, ctx.cfg.get("holdout", {}).get("bigs_edges", [0, 3, 4, 5, 11]), "bigs")
+
+
+def by_bench(p: Prediction, wd_h: WindowData, ctx: Context, h: int, train: list) -> np.ndarray:
+    """How many of the ten on the floor are bench players in season H (games-started share below
+    cfg holdout.bench_gs_pct): where the role prior is meant to help, and where garbage time lives."""
+    bench = ctx.bench(h)
+    ids = wd_h.spec.ps_table["player_id"].to_numpy()
+    flag = np.array([1.0 if bench.get(int(q), False) else 0.0 for q in ids])
+    return _count_split(flag, wd_h, ctx.cfg.get("holdout", {}).get("bench_edges", [0, 3, 5, 7, 11]), "bench")
+
+
+def by_gt(p: Prediction, wd_h: WindowData, ctx: Context, h: int, train: list) -> np.ndarray:
+    """Garbage-time rows (the stint parser's rule: a 4th-quarter margin of 15 late or 20 at any point) against the rest."""
+    gt = wd_h.rows["is_gt"].to_numpy().astype(bool)
+    return np.where(gt, "garbage time", "competitive")
+
+
+SPLITS = {"movers": by_movers, "exposure": by_exposure, "bigs": by_bigs, "bench": by_bench, "gt": by_gt}
 
 
 # ---------------------------------------------------------------------------------------- the runner
@@ -464,12 +586,13 @@ class Holdout:
         return [h for h in range(self.first, self.last + 1) if s0 <= h <= s1]
 
     def run(self, systems: list, ctx: Context, splits: dict | None = None, rank: bool = False,
-            out: Path | None = None, verbose: bool = True) -> pd.DataFrame:
-        """One row per held-out season x K x lambda x system x split x group, columns RESULT_COLUMNS."""
+            out: Path | None = None, verbose: bool = True, held: list | None = None) -> pd.DataFrame:
+        """One row per held-out season x K x lambda x system x split x group, columns RESULT_COLUMNS.
+        `held` restricts the held-out seasons (a worker's share of them); default = all of `seasons()`."""
         splits = splits or {}
         rows, rank_rows = [], []
         t0 = time.time()
-        held = self.seasons()
+        held = self.seasons() if held is None else [int(h) for h in held]
         if verbose:
             print(f"held-out {held[0]}-{held[-1]} ({len(held)}), K {self.ks}, lambdas {self.lams}, "
                   f"systems {[s.name for s in systems]}", flush=True)
@@ -509,9 +632,67 @@ class Holdout:
 def _fit(system, train, ctx, lam):
     """Fit with the run's lambda where the system leaves it open."""
     if isinstance(system, PluginSystem) and system.lam is None:
-        s = PluginSystem(system.name, system.target, system.beta, lam, system.lam_ratio)
-        return s.fit(train, ctx)
+        return replace(system, lam=lam).fit(train, ctx)
     return system.fit(train, ctx)
+
+
+# ---------------------------------------------------------------------------------------- parallel runner
+THREAD_VARS = ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMBA_NUM_THREADS")
+
+
+def _worker(job: dict):
+    """One process's share of the held-out seasons.  Systems are rebuilt by name from `systems.registry`
+    inside the child (closures do not pickle), on a fresh Context with its own stint cache."""
+    from .systems import registry
+    cfg = job["cfg"]
+    ctx = Context.load(cfg)
+    reg = registry(cfg, rankmap=job.get("rankmap"))
+    systems = [reg[n] for n in job["names"]]
+    ho: Holdout = job["holdout"]
+    res = ho.run(systems, ctx, splits={s: SPLITS[s] for s in job.get("splits", [])}, rank=job.get("rank", False),
+                 held=job["held"], verbose=job.get("verbose", True))
+    gb = [r for prior in (ctx.gbdt, ctx.mspi, ctx.mspi_apm) if prior is not None for r in getattr(prior, "reports", [])]
+    return res, ho.rank_, gb, list(ctx.reports)
+
+
+def run_parallel(ho: "Holdout", names: list, splits=(), rank: bool = False, out: Path | None = None,
+                 verbose: bool = True, workers: int = 4, rankmap=None) -> tuple[pd.DataFrame, pd.DataFrame | None, list]:
+    """`Holdout.run` over `workers` spawned processes, contiguous blocks of held-out seasons each, with the
+    BLAS / numba thread count pinned to cpu_count // workers so the processes do not oversubscribe the
+    machine (the handoff's 20x trap).  Returns (results, rank rows or None, the GBDT drag reports)."""
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor
+
+    held = ho.seasons()
+    workers = max(1, min(int(workers), len(held)))
+    threads = max(1, (os.cpu_count() or workers) // workers)
+    chunks = [c.tolist() for c in np.array_split(np.asarray(held), workers)]
+    old = {k: os.environ.get(k) for k in THREAD_VARS}
+    os.environ.update({k: str(threads) for k in THREAD_VARS})
+    t0 = time.time()
+    try:
+        if verbose:
+            print(f"parallel: {workers} workers x {threads} threads, seasons {[ (c[0], c[-1]) for c in chunks ]}", flush=True)
+        with ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn")) as ex:
+            jobs = [dict(cfg=ho.cfg, holdout=ho, names=list(names), held=c, splits=list(splits), rank=rank,
+                         rankmap=rankmap, verbose=verbose) for c in chunks if c]
+            parts = [f.result() for f in [ex.submit(_worker, j) for j in jobs]]
+    finally:
+        for k, v in old.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    res = pd.concat([p[0] for p in parts], ignore_index=True).sort_values(["held_out", "k", "lam", "system"]).reset_index(drop=True)
+    ranks = [p[1] for p in parts if p[1] is not None]
+    rank_ = pd.concat(ranks, ignore_index=True) if ranks else None
+    ho.rank_ = rank_
+    reports = [r for p in parts for r in p[2]]
+    if out is not None:
+        res[RESULT_COLUMNS].to_parquet(out, index=False)
+    if verbose:
+        print(f"parallel run done ({time.time() - t0:.0f}s)", flush=True)
+    return res[RESULT_COLUMNS], rank_, reports
 
 
 # ---------------------------------------------------------------------------------------- summaries

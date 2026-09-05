@@ -9,9 +9,9 @@ import pandas as pd
 import pytest
 
 from eracoef.design import FEATURES, build_design
-from eracoef.holdout import (RESULT_COLUMNS, SPLITS, Context, Holdout, PluginSystem, Ratings, TableSystem,
-                             beta_none, fit_rank_map, paired, pooled, pooled_rank, predict_season, rank_calibration,
-                             replacement_quality, report, score, team_residual)
+from eracoef.holdout import (RESULT_COLUMNS, SPLITS, Context, Holdout, PluginSystem, Ratings, SplitSystem,
+                             TableSystem, beta_none, fit_rank_map, paired, pooled, pooled_rank, predict_season,
+                             rank_calibration, ratings_from_fit, replacement_quality, report, score, team_residual)
 from eracoef.simulate import simulate
 
 CFG = {"gt_weight": 1.0, "margin_clip": 25, "low_poss_threshold": 500, "features": FEATURES,
@@ -37,6 +37,9 @@ def world():
     ctx = Context(cfg=CFG, loader=loader)
     for s, g in truth.groupby("season"):                       # main teams from the truth, not box scores
         ctx._teams[int(s)] = dict(zip(g.player_id.astype(int), g.team.astype(int)))
+        ids = g.player_id.astype(int).to_numpy()
+        ctx._bigness[int(s)] = {int(q): bool(q % 3 == 0) for q in ids}   # archetype flags: the split only needs a partition
+        ctx._bench[int(s)] = {int(q): bool(q % 2 == 0) for q in ids}
     table = truth.rename(columns={"impact_O": "o", "impact_D": "d"})[["player_id", "season", "o", "d"]]
     return sim, ctx, table
 
@@ -98,6 +101,8 @@ def test_splits_partition_rows(results):
         assert np.allclose(g.reindex(a.index), a)
     movers = res[(res.split == "movers") & (res.system == "true")]
     assert {"no movers", "1-2 movers", "3+ movers"} & set(movers.group)
+    assert res[(res.split == "bigs") & (res.system == "true")].group.nunique() >= 2
+    assert res[(res.split == "bench") & (res.system == "true")].group.nunique() >= 2
 
 
 def test_rank_calibration_sees_amplitude(results):
@@ -144,3 +149,49 @@ def test_diagnostics_run(world):
     rq = replacement_quality(p, wd_h, ctx.main_team(2003), min_poss=1)   # a TableSystem's poss is seasons, not possessions
     assert len(rq) > 0 and "corr" in rq.attrs
     ctx.current_h = None
+
+
+def test_offset_system_equals_plugin_fit(world):
+    """A PluginSystem with a per-player offset is the plug-in fit with that prior_offset, and its rating splits
+    into the prior part and the ridge residual exactly; a SplitSystem carries both priors through."""
+    from eracoef.cv import plugin_fit
+    sim, ctx, table = world
+    train = [2002, 2004]
+    wd = ctx.design(train, "pts")
+    m = wd.spec.n_ps
+    rng = np.random.default_rng(5)
+    v = rng.normal(0, 1.0, 2 * m)
+    sys_off = PluginSystem("off", beta=beta_none, offset=lambda t, c, w: v)
+    r = sys_off.fit(train, ctx).df
+    pipe = plugin_fit(wd, np.zeros(2 * len(FEATURES)), lam=CFG["lam_plugin"], lam_ratio=CFG["lam_ratio_plugin"],
+                      pad_target=CFG["pad_target"], prior_offset=v)
+    ref = ratings_from_fit(wd, pipe, np.zeros(2 * len(FEATURES)), offset=v).df
+    assert np.allclose(r.o, ref.o, atol=1e-12) and np.allclose(r.d, ref.d, atol=1e-12)
+    assert np.allclose(r.prior_o, ref.prior_o) and np.allclose(r.prior_d, ref.prior_d)
+    # the simulator's units are player-seasons, pooled to one row per player; before pooling the split is exact
+    raw = pd.DataFrame({"o": v[:m] + pipe["mm"].u_[:m], "prior_o": v[:m], "d": v[m:] + pipe["mm"].u_[m:], "prior_d": v[m:]})
+    assert np.allclose(raw.o - raw.prior_o, pipe["mm"].u_[:m]) and np.allclose(raw.d - raw.prior_d, pipe["mm"].u_[m:])
+    assert abs(r.prior_o.std()) > 0 and abs(r.prior_d.std()) > 0
+    plain = PluginSystem("plain", beta=beta_none).fit(train, ctx).df
+    assert not np.allclose(plain.o, r.o)                                   # the offset changed the fit
+    assert np.allclose(plain.prior_o, 0.0)
+    split = SplitSystem("split", offense=sys_off, defense=PluginSystem("plain", beta=beta_none)).fit(train, ctx).df
+    assert np.allclose(split.prior_o, r.prior_o) and np.allclose(split.prior_d, 0.0)
+    assert np.allclose(split.o, r.o) and np.allclose(split.d, plain.d)
+
+
+def test_ratings_table_prior_parts(world):
+    """windows.player_ratings_table with the chain offset: prior_* carry the offset (defense flipped), and
+    rating = prior + u holds with no linear box term."""
+    from eracoef.windows import player_ratings_table
+    sim, ctx, table = world
+    seasons = [2002, 2004]
+    wd = ctx.design(seasons, "pts")
+    m = wd.spec.n_ps
+    v = np.random.default_rng(7).normal(0, 1.0, 2 * m)
+    zeros = np.zeros(2 * len(FEATURES))
+    t = player_ratings_table(wd, zeros, CFG, seasons, prior_offset=v, prior_parts=(v[:m], v[m:]))
+    assert np.allclose(t.prior_off, v[:m]) and np.allclose(t.prior_def, -v[m:])
+    plain = player_ratings_table(wd, zeros, CFG, seasons)
+    assert np.allclose(plain.prior_off, 0.0) and not np.allclose(plain.u_off, t.u_off)
+    assert np.allclose(t.prior_total, t.prior_off + t.prior_def)
