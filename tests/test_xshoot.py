@@ -39,6 +39,19 @@ def test_rates_pad_toward_own_mix():
     assert r.ratio2["A"][1] < r.ratio2["RS"][1] < 1.2
 
 
+def test_extra_seasons_and_fixed_k():
+    """Earlier seasons pool into every half's totals; a fixed k overrides the method of moments."""
+    shots, ft = _tables()
+    base = rates_from_tables(shots, ft, k_fixed={"fg3": 450.0})
+    assert base.k["fg3"] == 450.0
+    # player 1: 50 threes at 40% per half; an extra season of 200 more at 40% moves him nearer 0.40
+    extra = pd.DataFrame([dict(game_id="g0", player_id=1, half="A", fg2a=0, fg2m=0, xl2=0.0, fg3a=200, fg3m=80, xl3=72.0)])
+    more = rates_from_tables(shots, ft, extra=extra, k_fixed={"fg3": 450.0})
+    assert more.p3["B"][1] > base.p3["B"][1]                    # more evidence of a 40% shooter than the league ~0.33
+    assert more.p3["A"][1] > base.p3["A"][1] and more.p3["RS"][1] > base.p3["RS"][1]
+    assert more.pft["B"][1] == base.pft["B"][1]                 # the extra table has no free throws: untouched
+
+
 def _cnt(pids, half, **slot):
     d = {f"{c}_s{s}": [0.0] for c in SHOOTER_COUNTERS for s in SLOTS}
     for k, v in slot.items():

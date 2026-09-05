@@ -21,7 +21,10 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from eracoef.config import load_config  # noqa: E402
 from eracoef.windows import build_window  # noqa: E402
-from eracoef.xshoot import TARGET_REGISTRY  # noqa: E402
+from eracoef.xshoot import DEFENSE_TARGETS  # noqa: E402
+from eracoef.xshoot import TARGET_REGISTRY as _OFF  # noqa: E402
+
+TARGET_REGISTRY = {**_OFF, **DEFENSE_TARGETS}
 
 pd.set_option("display.width", 250, "display.max_columns", 40, "display.precision", 4)
 cfg = load_config()

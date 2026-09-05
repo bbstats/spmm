@@ -62,6 +62,10 @@ try:                                                   # the shooter-level targe
     for name, target in xshoot.TARGET_REGISTRY.items():
         SYSTEMS[f"hybrid_{name}"] = PluginSystem(f"hybrid_{name}", target=target, beta=beta_hybrid)
         SYSTEMS[f"split_{name}"] = SplitSystem(f"split_{name}", offense=SYSTEMS[f"hybrid_{name}"], defense=SYSTEMS["hybrid"])
+    # defensive targets: offense from the free-throw system, defense from a fit on the target
+    for name, target in xshoot.DEFENSE_TARGETS.items():
+        SYSTEMS[f"def3_{name[6:] or 'p0'}"] = SplitSystem(f"def3_{name[6:] or 'p0'}", offense=SYSTEMS["hybrid_xft"],
+                                                            defense=PluginSystem(f"hybrid_{name}", target=target, beta=beta_hybrid))
 except ImportError:
     pass
 

@@ -79,13 +79,23 @@ class ShooterRates:
         return np.asarray(pd.Series(row_half).map(OTHER).fillna("RS"))
 
 
-def rates_from_tables(shots: pd.DataFrame, ft: pd.DataFrame) -> ShooterRates:
-    """The padded per-shooter rates from the two per-game tables (the testable core of shooter_rates)."""
+def rates_from_tables(shots: pd.DataFrame, ft: pd.DataFrame, extra: pd.DataFrame | None = None,
+                      k_fixed: dict | None = None) -> ShooterRates:
+    """The padded per-shooter rates from the two per-game tables (the testable core of shooter_rates).
+
+    `extra` is a shots table from seasons OUTSIDE the block (earlier ones), added whole to every
+    half's totals: more attempts per shooter, and never a game that is being priced.  `k_fixed`
+    overrides the method-of-moments padding constant per kind, e.g. {"fg3": 450.0} -- the value the
+    split-half reliability of high-volume shooters gives (FINDINGS.md section 18).
+    """
     def totals(df, cols):
         out = {}
         for h in ("A", "B"):
             out[h] = df[df.half == h].groupby("player_id")[cols].sum()
         out["RS"] = df.groupby("player_id")[cols].sum()
+        if extra is not None and len(extra) and all(c in extra.columns for c in cols):
+            e = extra.groupby("player_id")[cols].sum()
+            out = {h: t.add(e, fill_value=0.0) for h, t in out.items()}
         return out
 
     T = totals(shots, ["fg2a", "fg2m", "xl2", "fg3a", "fg3m", "xl3"])
@@ -94,6 +104,8 @@ def rates_from_tables(shots: pd.DataFrame, ft: pd.DataFrame) -> ShooterRates:
     league["fg2"], k["fg2"] = mom_k(T["RS"].fg2m.to_numpy(), T["RS"].fg2a.to_numpy())
     league["fg3"], k["fg3"] = mom_k(T["RS"].fg3m.to_numpy(), T["RS"].fg3a.to_numpy())
     league["ft"], k["ft"] = mom_k(F["RS"].ftm.to_numpy(), F["RS"].fta.to_numpy(), fallback_rate=0.75)
+    for kind, v in (k_fixed or {}).items():
+        k[kind] = float(v)
     ratio2, ratio3, p2, p3, pft = {}, {}, {}, {}, {}
     for h in ("A", "B", "RS"):
         t = T[h]
@@ -110,11 +122,22 @@ def rates_from_tables(shots: pd.DataFrame, ft: pd.DataFrame) -> ShooterRates:
     return ShooterRates(ratio2, ratio3, p2, p3, pft, league, k)
 
 
-def shooter_rates(seasons, cfg) -> ShooterRates:
-    """The padded per-shooter rates for a block of seasons, from the shots tables and the box scores."""
+def shooter_rates(seasons, cfg, prev: int = 0, k_fixed: dict | None = None) -> ShooterRates:
+    """The padded per-shooter rates for a block of seasons, from the shots tables and the box scores.
+
+    `prev` adds the P seasons BEFORE the block's first season, whole.  Anchored to the block's start
+    rather than to each row's season so the held-out season (which sits inside the block's gap, or
+    just after it) can never be one of them.  Seasons with no stints built are skipped.
+    """
+    seasons = sorted(int(s) for s in seasons)
     shots = load_shots(seasons, cfg)
     halves = shots.drop_duplicates("game_id").set_index("game_id")["half"]
-    return rates_from_tables(shots, load_ft(seasons, cfg, halves))
+    extra = None
+    if prev:
+        d = resolve(cfg, "stints")
+        have = [s for s in range(seasons[0] - prev, seasons[0]) if (d / f"{s}_RS_shots.parquet").exists()]
+        extra = load_shots(have, cfg) if have else None
+    return rates_from_tables(shots, load_ft(seasons, cfg, halves), extra=extra, k_fixed=k_fixed)
 
 
 # ---------------------------------------------------------------------------------------- pricing the rows
@@ -284,6 +307,53 @@ def continuation_design(seasons, cfg, wd_pts, x=None, location=True, r="league",
     return wd_pts.with_target(y), dict(target=f"xcont_{r}", x=x, gates=g, calibration=cal)
 
 
+def def_three_design(seasons, cfg, wd_pts, prev: int = 0, k3: float = 450.0, calibrate: bool = True):
+    """The DEFENSIVE target: actual points with every opponent three-point make replaced by
+    3 x the shooter's padded 3P%, free throws adjusted as shipped, everything else as it happened.
+
+    Team opponent 3P% needs 4,000-7,000 attempts to stabilise (Nylon Calculus, 2018), so the
+    defenders' effect on whether a three drops is almost entirely noise; this removes it from the
+    variable their coefficients are fit to.  The shooter's rate is his other-half-of-block 3P%, plus
+    the `prev` seasons before the block, padded toward the league with k = `k3` attempts (450: the
+    split-half reliability of high-volume shooters, FINDINGS.md section 18).  No location curve.
+    Meant to supply the DEFENSIVE coefficients only; offense comes from the free-throw target.
+    """
+    _check(wd_pts)
+    cnt, season = wd_pts.counters, wd_pts.rows["season"].to_numpy()
+    seasons = sorted(int(s) for s in seasons)
+    rates = shooter_rates(seasons, cfg, prev=prev, k_fixed={"fg3": k3})
+    which = rates.for_rows("fg3", cnt["half"].to_numpy())
+    n = len(cnt)
+    x3 = cnt["fg3a_sx"].to_numpy(dtype=float) * rates.league["fg3"]
+    for s in SLOTS:
+        pid = cnt[f"pid_s{s}"].to_numpy()
+        p = np.full(n, rates.league["fg3"])
+        for h in ("A", "B", "RS"):
+            m = which == h
+            if m.any():
+                p[m] = pd.Series(pid[m]).map(rates.p3[h]).fillna(rates.league["fg3"]).to_numpy()
+        x3 += cnt[f"fg3a_s{s}"].to_numpy(dtype=float) * p
+    poss = cnt["poss"].to_numpy(dtype=float)
+    c = cnt
+    pts_adj = (c["pts"] - 3.0 * c["fg3m"] + 3.0 * x3
+               - c["ftm"] - c["ftm_tech"] + c["xftm"] + c["xftm_tech"]).to_numpy(dtype=float)
+    y = 100.0 * pts_adj / poss
+    rows = []
+    for s in np.unique(season):
+        m = season == s
+        rows.append(dict(season=int(s), r2=1.0, r3=float(x3[m].sum() / max(c.fg3m[m].sum(), 1.0)),
+                         rft=float(c.xftm[m].sum() / max(c.ftm[m].sum(), 1.0)),
+                         pts=float((y[m] * poss[m] / 100.0).sum() / max(c.pts[m].sum(), 1.0)), pts1=1.0, chance1=1.0))
+    g = pd.DataFrame(rows)
+    for col in ("r2", "r3", "rft", "pts1", "chance1"):
+        g[f"{col}_ok"] = g[col].between(0.98, 1.02)
+    g["pts_ok"] = g.pts.between(*CALIB_BAND)
+    cal = pd.DataFrame()
+    if calibrate:
+        y, cal = align(y, wd_pts.y, wd_pts.w, season, poss)
+    return wd_pts.with_target(y), dict(target=f"x3def_p{prev}", x=None, gates=g, calibration=cal, k3=rates.k["fg3"])
+
+
 def _named(fn, name, **kw):
     def target(seasons, cfg, wd_pts):
         return fn(seasons, cfg, wd_pts, **kw)
@@ -298,4 +368,12 @@ TARGET_REGISTRY = {
     "xshoot_x1": _named(shooter_design, "xshoot_x1", x=1),
     "xcont": _named(continuation_design, "xcont"),
     "xcont_lineup": _named(continuation_design, "xcont_lineup", r="lineup"),
+}
+
+# targets meant for the DEFENSIVE coefficients only (scripts/45_holdout.py: def3_<name> = offense from
+# hybrid_xft, defense from a fit on this target); pN = N seasons before the block added to the rate
+DEFENSE_TARGETS = {
+    "x3def": _named(def_three_design, "x3def"),
+    "x3def_p1": _named(def_three_design, "x3def_p1", prev=1),
+    "x3def_p2": _named(def_three_design, "x3def_p2", prev=2),
 }
