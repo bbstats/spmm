@@ -40,6 +40,16 @@ ratings_prior:
   offense: player
   defense: none
   boost: false        # the boosted correction is worth 0 on total and -0.020 on offense (30_ladder)
+  target: xpts_ft     # made free throws replaced by the shooter's padded expectation (design.TARGETS);
+                      # the one luck adjustment that beat actual points out of season (FINDINGS 16-18)
+  # The rank-calibration map (FINDINGS section 18): a monotone per-side curve from the pooled
+  # out-of-season decile slopes, applied to the finished ratings.  Good players are calibrated,
+  # bad ones exaggerated (worst offensive decile wants x0.77); the map fixes that and won the
+  # leave-one-season-out test by 0.4 points per 100 at team-game level.  Rank-preserving per side.
+  rank_map:
+    table: outputs/holdout_final_rank.parquet   # scripts/45_holdout.py --systems=hybrid_xft --rank --tag=final
+    system: hybrid_xft
+    k: 4
 # The random effect unit: "window" gives one player effect per 3-season window, "season" one per
 # player-season (the original spec).  Possession thresholds below are in the unit's own scale.
 player_unit: window

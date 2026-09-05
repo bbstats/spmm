@@ -65,6 +65,16 @@ try:                                                   # the shooter-level targe
 except ImportError:
     pass
 
+# --rankmap=<holdout_<tag>_rank.parquet>: for every system named in --systems that has rank rows in that
+# file, also score rankmap_<system>, the rank-calibration correction mapped leave-one-season-out
+rm = _flag("rankmap")
+if rm:
+    from eracoef.holdout import RankMappedSystem
+    rank_table = pd.read_parquet(rm)
+    for n in list(SYSTEMS):
+        if n in set(rank_table.system):
+            SYSTEMS[f"rankmap_{n}"] = RankMappedSystem(f"rankmap_{n}", SYSTEMS[n], rank_table)
+
 args = [a for a in sys.argv[1:] if not a.startswith("--")]
 names = _list("systems", ["rapm", "pi", "hybrid", "hybrid_xft"])
 unknown = [n for n in names if n not in SYSTEMS]

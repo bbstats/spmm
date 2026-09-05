@@ -97,7 +97,9 @@ t0 = time.time()
 for w in window_seasons(cfg):
     seasons = list(range(w[0], w[1] + 1))
     lab = window_label(seasons)
-    wd = build_window(seasons, cfg)
+    # the target the ratings are fit to: "xpts_ft" replaces made free throws by the shooter's
+    # expectation (FINDINGS.md sections 16-18: the one luck adjustment that beat actual points)
+    wd = build_window(seasons, cfg, target=PRIOR.get("target", "pts"))
     if USE_HYBRID:
         beta = hybrid_beta(panel, FEATS, lab)
         # the playoff delta was fit as a change in the TEAM-priced coefficients; apply it to the
@@ -134,13 +136,38 @@ for side in ("off", "def", "total"):
     if f"prior_{side}_po" in rat.columns:
         rat[f"rating_{side}_po"] = rat[f"prior_{side}_po"] + g(side) + rat[f"u_{side}"]
 
+# The rank-calibration map (FINDINGS.md section 18).  Out of season, the held-out seasons want the
+# worst offensive decile multiplied by 0.77 and the best by 1.01, and the same for defense read in
+# the good direction: good players are calibrated, bad ones exaggerated.  The map is a monotone
+# per-side curve fitted on the pooled decile slopes of every held-out season (holdout.fit_rank_map),
+# scored leave-one-season-out at -0.4 points per 100 at team-game level (z -6, 26 of 28 seasons).
+# It preserves every within-side rank; the consensus read is unchanged (0.894 against 0.895).
+RM = PRIOR.get("rank_map")
+if RM:
+    from eracoef.holdout import fit_rank_map
+    rp_rank = Path(cfg["_root"]) / RM["table"]
+    if not rp_rank.exists():
+        raise SystemExit(f"{rp_rank} is missing; run scripts/45_holdout.py --systems={RM['system']} --rank --tag=final")
+    rank_table = pd.read_parquet(rp_rank)
+    f_o = fit_rank_map(rank_table, RM["system"], "o", int(RM["k"]))
+    f_d = fit_rank_map(rank_table, RM["system"], "d", int(RM["k"]))
+    for suffix in ("", "_po"):
+        if f"rating_off{suffix}" not in rat.columns:
+            continue
+        rat[f"rating_off{suffix}_raw"] = rat[f"rating_off{suffix}"]
+        rat[f"rating_def{suffix}_raw"] = rat[f"rating_def{suffix}"]
+        rat[f"rating_off{suffix}"] = f_o(rat[f"rating_off{suffix}"].to_numpy())
+        rat[f"rating_def{suffix}"] = -f_d(-rat[f"rating_def{suffix}"].to_numpy())   # the map is in raw sign
+        rat[f"rating_total{suffix}"] = rat[f"rating_off{suffix}"] + rat[f"rating_def{suffix}"]
+    print(f"rank map applied from {RM['table']} ({RM['system']}, K={RM['k']})")
+
 SORT = "rating_total" if "rating_total" in rat.columns else "rapm_mm_total"
 cols = ["window", "window_mid", "season", "player_id", "player_name", "poss_off", "poss_def", "shrinkage",
         "prior_off", "prior_def", "prior_total", "boost_off", "boost_def", "boost_total",
         "u_off", "u_def", "u_total", "u_plain_off", "u_plain_def", "u_plain_total",
         "rapm_mm_off", "rapm_mm_def", "rapm_mm_total",
         "rating_off", "rating_def", "rating_total"]
-cols += [c for c in rat.columns if c.endswith("_po") and c not in cols]
+cols += [c for c in rat.columns if (c.endswith("_po") or c.endswith("_raw")) and c not in cols]
 rat = rat[[c for c in cols if c in rat.columns]].sort_values(["window", SORT], ascending=[True, False])
 rat.to_parquet(OUT / "player_ratings.parquet", index=False)
 rat.round(4).to_csv(CSV / "player_ratings.csv", index=False)

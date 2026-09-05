@@ -91,6 +91,7 @@ class Context:
     base: pd.DataFrame | None = None
     loader: Callable = default_loader
     current_h: int | None = None
+    current_k: int | None = None
     cache_size: int = 4
     _cache: dict = field(default_factory=dict, repr=False)
     _teams: dict = field(default_factory=dict, repr=False)
@@ -263,6 +264,26 @@ class MappedSystem:
         r = self.inner.fit(train, ctx).df.copy()
         r["o"] = self.map_o(r.o.to_numpy())
         r["d"] = self.map_d(r.d.to_numpy())
+        return Ratings(r)
+
+
+@dataclass
+class RankMappedSystem:
+    """The rank-calibration correction, scored honestly: the map for held-out season H is fitted on
+    the pooled decile slopes of every OTHER held-out season (`fit_rank_map`, exclude_h = H), at the
+    same K, so H's own outcomes never choose H's correction.  `rank` is Holdout.rank_ from an earlier
+    run of `inner` with rank=True."""
+    name: str
+    inner: System
+    rank: pd.DataFrame
+    sides: tuple = ("o", "d")
+
+    def fit(self, train, ctx: Context) -> Ratings:
+        r = self.inner.fit(train, ctx).df.copy()
+        k = ctx.current_k if ctx.current_k is not None else int(self.rank.k.iloc[0])
+        for side in self.sides:
+            f = fit_rank_map(self.rank, self.inner.name, side, k, exclude_h=ctx.current_h)
+            r[side] = f(r[side].to_numpy())
         return Ratings(r)
 
 
@@ -456,6 +477,7 @@ class Holdout:
             ctx.current_h = h
             wd_h = ctx.design([h], "pts")                       # ALWAYS scored against actual points
             for k in self.ks:
+                ctx.current_k = k
                 train = ctx.neighbourhood(h, k)
                 for system in systems:
                     for lam in self.lams:

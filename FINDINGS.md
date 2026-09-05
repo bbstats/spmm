@@ -1171,3 +1171,77 @@ and defenders; the free throw is the only one of these where the shooter's own r
 (k = 24) and the defence absent, so it is the only one where an expectation beats the realised
 outcome as a target. A two- or three-point attempt needs about 200 of its kind before the shooter's
 rate is worth as much as the league's, and there is no half-season in which most players have them.
+
+### Rank calibration: the bottom of the board is exaggerated, the top is right
+
+The owner's observation was that ranking players by their rating and regressing the realised
+outcome on it within rank groups gives coefficients that vary from 1. `holdout.rank_calibration`
+measures it out of season, as a smooth slope in the standardised rating reported at each decile's
+mean. On the chosen system, pooled over the 28 held-out seasons (`scripts/45_holdout.py --rank`):
+
+| decile of the rating | offense, K=2 | offense, K=4 | defense (raw sign: low = good), K=2 | defense, K=4 |
+|---|---|---|---|---|
+| 0 (worst offense / best defense) | **0.77** (z −9.7) | 0.80 (z −8.0) | 1.07 (z +2.8) | 1.05 (z +2.5) |
+| 2 | 0.83 (z −11.5) | 0.87 (z −8.8) | 0.98 | 0.96 |
+| 4 | 0.86 (z −10.1) | 0.90 (z −7.0) | 0.94 (z −2.3) | 0.92 (z −3.3) |
+| 6 | 0.89 (z −7.5) | 0.93 (z −4.6) | 0.91 (z −3.7) | 0.89 (z −5.1) |
+| 8 | 0.94 (z −3.8) | 0.97 (z −1.8) | 0.87 (z −5.3) | 0.83 (z −7.6) |
+| 9 (best offense / worst defense) | **1.01** (z +0.6) | 1.02 (z +1.1) | **0.84** (z −5.2) | **0.78** (z −7.9) |
+
+The pattern is the same on both sides once the defensive sign is read: **good players are
+calibrated, bad players are exaggerated.** The worst offensive decile wants its ratings multiplied
+by 0.77, the best by 1.01; the worst defensive decile by 0.78-0.84, the best by 1.05. It is
+monotone through every decile, it is the same at both K and on the plain hybrid, and it is far
+outside noise. So the top of the board is where it should be and the bottom is too far below zero.
+That is a different defect from a global amplitude (`scale_off` 0.93 on the same system); a
+scalar cannot fix it and a rank-dependent map can. The same on the lineup rank: lineups predicted
+to be the worst score 0.71-0.79 of their predicted deficit (z −4.8), the best about 1.0-1.2.
+
+Two candidates for the mechanism, not separated here: a bench player's box prior (priced to
+predict his next-window impact) may over-state how bad a low-usage player is when he actually
+plays, or the ridge's shrinkage may be lighter than the low end needs. Either way the correction
+is the same and it is measured next.
+
+### The validation read and the two rating-semantics diagnostics
+
+Consensus, 2024-26, read once: hybrid_xft total 0.895 / offense 0.879 / defense 0.888 (the shipped
+board's numbers); `split_xshoot`, the best of the shooter-level contenders, 0.885 / 0.857 / 0.888
+with archetype bias 0.28 against 0.19 -- the luck-adjusted offense also agrees less with the
+outside metrics. Nothing selected on this; it points the same way as the criterion.
+
+By how many of the ten on the floor changed team since training (the traded-to-an-average-team
+diagnostic): the free-throw term's gain over raw points is the same in every group (−0.12 to −0.17
+at K=2 with no movers, one or two, and three or more), as it should be for an adjustment that
+removes noise rather than moving credit between teammates. By the smallest training exposure on the
+floor: the gain is largest where the floor is all established players (−0.35 in the 4000+ group)
+and where a barely-seen player is on it (−0.32 in the 1-499 group), and near zero in between.
+
+### The correction wins, and ships
+
+`holdout.RankMappedSystem` applies `fit_rank_map` -- a monotone piecewise-linear curve through
+the pooled decile slopes -- with the map for held-out season H fitted on every OTHER season's
+slopes, so H's outcomes never choose H's correction. Against the chosen system:
+
+| | stint K=2 | stint K=4 | game K=2 | game K=4 |
+|---|---|---|---|---|
+| rankmap_hybrid_xft − hybrid_xft | −0.31 (z −2.9, 21/28) | −0.28 (z −3.2, 22/28) | **−0.41 (z −6.2, 26/28)** | **−0.36 (z −5.7, 25/28)** |
+| rankmap_hybrid − hybrid_xft | −0.18 (z −1.6, 19/28) | −0.21 (z −2.3, 20/28) | −0.38 (z −4.9, 25/28) | −0.38 (z −5.3, 26/28) |
+
+Wins at both levels and both K under the stop rules. After the map the decile slopes are 0.98-1.05
+on offense and 0.97-1.03 on defense; the amplitude diagnostics read 1.03 / 1.01 (they were 0.93 /
+0.98). At game level it removes 10.2-10.3% of the no-ratings error against 9.8-10.0% before, a gain
+of the same size as `c_def = 0.5` bought in section 17 -- **but this one moves no credit between
+teammates.** The map is monotone per side, so it preserves every within-side rank by construction;
+the consensus read, once, is 0.894 / 0.879 / 0.888 against 0.895 / 0.879 / 0.888, the defensive
+spread ratio moves from 1.23 to 1.14 (toward the consensus's own spread) and the archetype bias
+from 0.19 to 0.18. Prediction bought, attribution untouched.
+
+**It ships.** `config.yaml` -> `ratings_prior.rank_map` names the rank table
+(`outputs/holdout_final_rank.parquet`, from `45_holdout.py --systems=hybrid_xft --rank`), the
+system and K; `scripts/08_ratings.py` applies the two maps to the finished ratings (raw columns kept
+as `rating_*_raw`). The chosen system is now **hybrid + xPTS(ft) + the rank map, `c_def = 0`.**
+
+What the session leaves settled: the criterion can now choose things that are not knobs on the
+prior -- a target (no), a defensive-prior weight (a trade), and a calibration curve (yes) -- and the
+one that won is the one that does not touch attribution. The `c_def` frontier of section 17 is still
+there for anyone who wants a forecasting product.
