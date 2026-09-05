@@ -1016,3 +1016,95 @@ anyone revisits this, neither done:
    criterion, but the value would then have to be reported on seasons not used to choose it.
 
 The chosen system is unchanged: **hybrid + xPTS(ft) at `c_def = 0`**.
+
+## 18. One evaluation system, one padding helper, and the shooter-level target
+
+### The system (`src/eracoef/holdout.py`, `scripts/45_holdout.py`)
+
+The out-of-season criterion of sections 16-17 lived in six near-identical scripts (38, 39, 40, 41,
+42, 44) that copied the same neighbourhood, prior, fit, scoring and z-test blocks between them. It
+is now one module, and the six scripts are gone:
+
+* A **System** is anything with a name and `fit(train_seasons, ctx) -> Ratings` (player_id, o, d,
+  poss, in the model's raw sign). `PluginSystem` is the fit every earlier script used; `SplitSystem`
+  takes offense from one system and defense from another; `MappedSystem` applies a per-side map;
+  `TableSystem` scores a table of ratings you already have, which is how the tests check the runner
+  against a known truth.
+* **`Holdout.run`** scores every system on every held-out season at stint and team-game level and
+  returns one tidy frame with a stable schema (`RESULT_COLUMNS`), optionally split by how many of
+  the ten on the floor changed team (`by_movers`) or by the smallest training exposure on the floor
+  (`by_exposure`). `pooled`, `paired` and `report` are the summaries; `vs_consensus` the validation
+  read; `team_residual` and `replacement_quality` the two rating-semantics diagnostics.
+* **Rank calibration** (`rank_calibration`): what the held-out season wants each decile of the
+  ratings multiplied by. Not one slope per decile: every row has exactly five players a side, so
+  the decile headcounts sum to a constant and a per-decile fit is collinear with the intercept -- on
+  ratings that were exactly right it returned 0.3 to 0.9 by decile. The slope is a smooth curve in
+  the standardised rating, `s(v) = c1 + c2 u + c3 u^2`, reported at each decile's mean; on the
+  simulated truth it is 1.0 within 0.03 everywhere and 0.5 for ratings doubled. The lineup-level
+  version (deciles of predicted margin) is identified as it stands and stays.
+* The grids live in `config.yaml` -> `holdout:` rather than in argv defaults, including `level`:
+  "home" refits an intercept and home term on the held-out season (what every earlier script did);
+  "full" refits the whole fixed block (margin, garbage time, playoffs). On the simulator the
+  difference is 0.78 against 0.85 on the true ratings' scale, because its rubber band makes a
+  leading lineup score less; on real data the ratings were fit with those columns, so "home" stays
+  the default and the regression check was run at it.
+
+`45_holdout.py 2010 2010 --k=2 --systems=rapm,pi,hybrid,hybrid_xft` reproduces the deleted
+`38_yoy.py` on every column to 1e-12. Each old script is one invocation of the new one (the
+docstring of 45 lists them). The runner is tested against `simulate(rho=0.85, turnover=0.3)`, which
+now has persistent talent and roster churn: true ratings beat noisy beat none, paired z below -2,
+the scale diagnostic reads 1.0 for the truth and 0.5 for the truth doubled.
+
+### The padding rule (`src/eracoef/pad.py`)
+
+The owner's rule is that no box-score stat is used unpadded, ever. There is now one place that
+does it: `shrink` (the closed form), `mom_k` (the method of moments for a proportion, in attempts),
+`pad_rate`. `boxtable.ft_padding` and `BoxExposure._pad_ps` delegate to it; every rate below goes
+through it. `mom_k` returns a very large `k` when the between-unit variance is below the binomial
+floor, which is the right answer (no signal, shrink fully) and the reason a test population with
+free-throw percentages between 70 and 78 padded to the league.
+
+### The shot-location curve (`src/eracoef/shotcurve.py`, `scripts/47_shotcurve_gate.py`)
+
+Shot validity by distance changes by season, so the league's make probability is a per-season
+curve, not a constant: a logistic regression on a natural cubic spline of distance, twos and threes
+separately, fitted on every field-goal attempt of the regular season and cached as a one-foot table.
+Two things the fit had to learn from the data:
+
+* **The rim is sharper than any smooth curve.** Dunks at 0 ft go in at 0.69-0.79, layups at 1 ft
+  at 0.68-0.80, contested shots at 2-3 ft at 0.57-0.67; the spline through them was off by 12
+  points at 1 ft. So a one-foot bin with many attempts keeps its own observed rate, padded toward
+  the spline (`K_BIN` = 150 attempts), and the spline serves the sparse bins. The gate -- every bin
+  with 1000+ attempts within 2 points -- passes on all 30 seasons with a worst gap of 0.8 points.
+* **Unlocated shots are their own cell.** About 11-16% of THREES carry distance 0 in every season,
+  1998 to 2026 alike; twos at distance 0 with no at-rim word in the description are 0.0-0.5% of
+  attempts and are mostly heaves (2026: 1135 of them, made at 2%). Each gets an explicit cell with
+  its own padded rate; `shot_bin` is the one place the rule lives, used by the fit and by the stint
+  parser alike.
+
+Coverage measured on 40 games per season: coordinates present for 70-76% of attempts in 1998-2008
+and ~100% from 2013 on; the three-point distance-0 share is flat across eras, so it is a feed
+property, not a data-age one.
+
+### The shooter-level target (`src/eracoef/xshoot.py`, `stints.py` schema 4)
+
+The stage 4 term (section 17) priced a shot with the LINEUP's fitted eFG% and lost. This one prices
+it with the SHOOTER's own rate, which is what the free-throw term does and the free-throw term is
+the luck adjustment that paid:
+
+    x(attempt) = curve(distance, season) * ratio(shooter)
+    p_mix      = mean over his other-half attempts of curve(distance)     what an average shooter makes from his spots
+    p_pad      = shrink(makes / attempts, attempts, k, target = p_mix)     padded TOWARD his own mix
+    ratio      = p_pad / p_mix
+
+The rate comes from the OTHER half of the block's games (a possession in a half-A game is priced
+with the shooter's half-B totals), pooled over the block's seasons; playoff rows use the whole
+regular season. Free throws keep the shooter's padded FT% toward the league. The stints carry the
+counts by lineup slot (`SLOT_COUNTERS`: attempts, the league expectation of them, and the
+first-attempt pieces, per shooter per slot, 156 columns) and the per-game shooter table; the
+expectation is computed at window-build time because the block, and therefore the other half, is
+a property of the training block. `xshoot.TARGET_REGISTRY` has five targets: `xshoot`
+(location-adjusted), `xshoot_flat` (the padded 2P%/3P% alone, so the curve's worth is measured),
+`xshoot_x1` (each season's own rate rather than the block's), and `xcont` / `xcont_lineup` (the
+first attempt's expectation plus its expected continuation under the validated closure, with the
+league or the lineup offensive-rebound rate).

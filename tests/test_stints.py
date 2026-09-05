@@ -148,3 +148,42 @@ def test_counters_survive_the_stint_collapse():
     # the and-1 possession: one field goal, one free throw, ONE attempt event
     a1 = p[p["reason"] == "made_ft"].iloc[0]
     assert a1["fga"] == 1 and a1["fta"] == 1 and a1["att"] == 1 and a1["and1"] == 1
+
+
+def test_shooter_counters_by_slot():
+    """The per-shooter counters sum to the side totals, and the first-attempt pieces are consistent."""
+    from eracoef.shotcurve import ShotCurve
+    from eracoef.stints import SHOOTER_COUNTERS, SLOTS
+    gp = GameParser(synthetic_game(), _box(), HOME, AWAY, "0020000001", curve=ShotCurve.constant(p2=0.5, p3=0.4))
+    p = gp.possessions()
+    st = gp.stints(p)
+
+    def tot(c, side):
+        return sum(st[f"{c}_s{s}_{side}"].sum() for s in SLOTS)
+
+    for side, team in (("h", HOME), ("a", AWAY)):
+        q = p[(p.offense == team) & p.valid]
+        assert tot("fg2a", side) == (q.fga - q.fg3a).sum()
+        assert tot("fg3a", side) == q.fg3a.sum()
+        assert tot("fta", side) == q.fta.sum()
+        assert tot("fta1", side) == q.fta1.sum()
+        assert tot("fg2a1", side) + tot("fg3a1", side) == (q.att1_rim + q.att1_mid + q.att1_thr).sum()
+        # a flat curve: the league expectation is exactly p x attempts
+        assert abs(tot("xl2", side) - 0.5 * tot("fg2a", side)) < 1e-9
+        assert abs(tot("xl3", side) - 0.4 * tot("fg3a", side)) < 1e-9
+        assert tot("xl2_1", side) <= tot("xl2", side) + 1e-9
+    # every shooter in this game was on the floor when his possession closed except the away
+    # player subbed out after his and-1 free throw
+    assert tot("fg2a", "h") + tot("fg3a", "h") > 0
+    # the first attempt's realised points and rebound chance
+    assert (p.pts1 <= p.points - p.pts_tech).all()
+    assert (p.chance1 <= p.reb_chance).all() and (p.chance1 <= 1).all()
+    a1 = p[p["reason"] == "made_ft"].iloc[0]
+    assert a1["pts1"] == 3 and a1["chance1"] == 0                       # and-1: 2 + the free throw, no chance
+    miss_oreb = p[(p.reb_cont > 0)].iloc[0]
+    assert miss_oreb["chance1"] == 1 and miss_oreb["pts1"] == 0         # first attempt missed, then rebounded
+    two_ft = p[p["reason"] == "dreb"].iloc[-1] if (p["reason"] == "dreb").any() else None
+    # the shooters dict is on every record and every counter name is known
+    for sh in p["shooters"]:
+        for cnt in sh.values():
+            assert set(cnt) == set(SHOOTER_COUNTERS)

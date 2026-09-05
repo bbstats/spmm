@@ -183,11 +183,18 @@ def _order_games(st: pd.DataFrame) -> pd.DataFrame:
     cols = ["game_id", "season", "phase", "series_id"]
     if "game_date" in st.columns:
         cols.append("game_date")
+    stored = "half" in st.columns and st["half"].notna().all()
+    if stored:
+        cols.append("half")
     games = st[cols].drop_duplicates("game_id").copy()
     games["_ph"] = (games["phase"] == "PO").astype(int)
     sort_cols = ["season", "_ph"] + (["game_date"] if "game_date" in games.columns else []) + ["game_id"]
     games = games.sort_values(sort_cols).drop(columns="_ph").reset_index(drop=True)
     games["game_idx"] = np.arange(len(games), dtype=np.int64)
+    if stored:
+        # the stint builder already assigned the halves by this same rule (stints.assign_halves) and
+        # the shooter tables use them; take them as stored so the two can never disagree
+        return games
     # cross-fitting halves: RS games alternate A/B in chronological order within each season
     # (a whole game in one half, both teams); playoff games alternate A/B within each series.
     rs = (games["phase"] == "RS").to_numpy()
@@ -384,8 +391,8 @@ def build_design(stints: pd.DataFrame, box: pd.DataFrame, features: list, cfg: d
                          "poss": poss, "den": den, "is_home_off": is_home_off, "is_gt": r_gt > 0,
                          "stint": stint_i, "half": game_half[r_game]})
     # the offense's counters per row, in the same row order (home-offense rows, then away-offense)
-    from .stints import POSS_COUNTERS
-    have = [c for c in POSS_COUNTERS if f"{c}_h" in st.columns and f"{c}_a" in st.columns]
+    from .stints import POSS_COUNTERS, SLOT_COUNTERS
+    have = [c for c in POSS_COUNTERS + SLOT_COUNTERS if f"{c}_h" in st.columns and f"{c}_a" in st.columns]
     counters = None
     if have:
         counters = pd.DataFrame({c: np.concatenate([st[f"{c}_{side}"].to_numpy(dtype=float)[s["stint"]]
@@ -394,5 +401,10 @@ def build_design(stints: pd.DataFrame, box: pd.DataFrame, features: list, cfg: d
         for c in ("pts", "poss"):
             counters[c] = np.concatenate([st[f"{c}_{side}"].to_numpy(dtype=float)[s["stint"]]
                                           for s, side in zip(sides, ("h", "a"))])
+        # the offense's five, by slot in the sorted lineup, so the slot counters can be priced per shooter
+        for k in range(5):
+            counters[f"pid_s{k + 1}"] = np.concatenate([st[slots[k]].to_numpy(dtype=np.int64)[s["stint"]]
+                                                        for s, slots in zip(sides, (HOME_SLOTS, AWAY_SLOTS))])
+        counters["half"] = rows["half"].to_numpy()
     return WindowData(X=X, y=y, w=w, groups=groups, spec=spec, game_box=game_box, game_poss=game_poss, rows=rows, games=games,
                       counters=counters)
