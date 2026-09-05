@@ -107,13 +107,16 @@ rebuild the target with a different pooling.
    board.** Stockton #1 (prior 4.62 + residual 0.56) over Jordan (4.31 + 0.96) is the prior, not the
    floor: the prior's spread is 1.76 per 100 against 0.36 for the on-court residual, correlation
    with the final offensive rating 0.98, and it is era-flat (a 1997 assist priced like a 2024 one;
-   ast +0.32, stl +0.67, fg3m +1.37 per unit of the per-100 rate). The owner's suggestion: if there
-   is a single prior, make it a GBDT on the box rates rather than a linear fit -- a gradient-boosted
-   model of next-window on-court impact from the 13 rates (plus era/season as a feature so it is
-   not era-flat), cross-fitted by window exactly as `player_priced_beta` is, then used as the
-   offset in the same one-penalty fit. Not the old LRBoost (a correction on top of the linear
-   prior, measured at 0): the prior itself. Test on the criterion against `def3_p0`, and read the
-   rank curve -- a good nonlinear prior should flatten the offensive 0.80-1.01 curve by itself.
+   ast +0.32, stl +0.67, fg3m +1.37 per unit of the per-100 rate). **The owner's direction: GBDT
+   priors on BOTH sides.** Replace the linear offensive prior (`player_priced_beta`) AND the
+   no-prior defense with two gradient-boosted models, one per side, each predicting a player's
+   next-window on-court impact (`u / a` from the same `xrapm_panel`) from his 13 padded rates plus
+   season, cross-fitted by window exactly as the linear prior is (a window's prior never sees its
+   own data), and used as the per-player offset in the same one-penalty ridge. This is the prior
+   itself, not the old LRBoost correction on top of a prior (measured at 0). Test on the criterion
+   against `def3_p0`; read the rank curve (a good offensive prior flattens 0.80-1.01 by itself) and
+   the consensus components (a defensive box prior lost on attribution before, section 16 --
+   the GBDT version has to clear that too).
 7. **A nonlinear offensive prior** (item 6 is one way) would be the principled replacement for the map on offense:
    fit `player_priced_beta` with a rank-dependent term, or apply the map to the prior before the
    ridge rather than after it, and test both against `rankmap_hybrid_xft` on the criterion.
