@@ -64,15 +64,21 @@ rebuild the target with a different pooling.
 ## Part 2: what to do next
 
 1. **Merge and republish.** `scripts/07_plots.py` on the new board, merge to `main`.
-2. **The rank map's mechanism** is not separated: the bench box prior over-stating how bad a
-   low-usage player is, or the ridge's shrinkage being too light at the low end. Test by running
-   `--rank` on `rapm` (no prior) and `pi`: if the curve is flat without a prior, it is the prior.
-   Either way the map is the right fix for the product; this is about understanding it.
-3. **The `c_def` frontier** (section 17) is still available for a forecasting product; the rank
-   map and `c_def` are likely additive but untested together (`hybrid_xft_c0.5` + `--rankmap`).
+2. **DONE -- the rank map's mechanism** (FINDINGS 18, last subsection). Offense: the curve is the
+   box prior's (no-prior ridge is calibrated at the bottom and 1.6x too narrow at the top; the
+   player-priced prior fixes the top, overshoots the bottom). Defense: the ridge's (the hybrid has no
+   defensive prior and its curve is the no-prior curve). Upstream fixes, if wanted: a prior that is
+   nonlinear at the low end on offense; a heavier or rating-dependent defensive penalty. The map
+   on the finished rating does both.
+3. **DONE -- the map and `c_def` add**: −0.91 per 100 at game level together (z −10.9, 27/28).
+   The forecasting product is `rankmap_hybrid_xft_c0.5` (game error 112.3, consensus 0.854); the
+   rating product ships without `c_def` (112.8, consensus 0.894).
 4. **Lineup-level calibration**: lineups predicted to be the worst score 0.7-0.8 of their deficit.
    The player-level map fixes part of that; `--rank` on the mapped system shows what is left.
-5. The remaining xfail (backup bigs) is untouched by any of this.
+5. **A nonlinear offensive prior** would be the principled replacement for the map on offense:
+   fit `player_priced_beta` with a rank-dependent term, or apply the map to the prior before the
+   ridge rather than after it, and test both against `rankmap_hybrid_xft` on the criterion.
+6. The remaining xfail (backup bigs) is untouched by any of this.
 
 ---
 
