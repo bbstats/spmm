@@ -1245,3 +1245,46 @@ What the session leaves settled: the criterion can now choose things that are no
 prior -- a target (no), a defensive-prior weight (a trade), and a calibration curve (yes) -- and the
 one that won is the one that does not touch attribution. The `c_def` frontier of section 17 is still
 there for anyone who wants a forecasting product.
+
+### Where the rank curve comes from, and the map on top of `c_def`
+
+Two follow-ups, run after the map shipped (`45_holdout.py --rank` on the no-prior and
+team-priced systems; the map applied on top of `hybrid_xft_c0.5` with its own leave-one-season-out
+table). Decile slopes at K=4, decile 0 = worst offense / best defense (raw sign), 9 = the other end:
+
+| side | system | decile 0 | decile 5 | decile 9 |
+|---|---|---|---|---|
+| offense | rapm, no prior | 1.01 | 1.35 | **1.63** |
+| offense | pi, team-priced prior | **0.75** | 0.85 | 0.95 |
+| offense | hybrid (player-priced prior) | **0.80** | 0.91 | 1.01 |
+| defense | rapm, no prior | 1.04 | 0.89 | **0.77** |
+| defense | hybrid (no defensive prior) | 1.04 | 0.90 | 0.76 |
+| defense | pi | 0.86 | 0.77 | 0.74 |
+
+**On offense the curve is the prior's.** With no box prior the ridge is calibrated at the bottom
+(1.01) and far too narrow at the top (1.63: the best offensive players are under-rated by
+shrinkage, the familiar star-compression of RAPM). Adding the player-priced prior fixes the top
+(1.01) and overshoots the bottom (0.80); the team-priced prior, wider still, overshoots everywhere
+(0.75-0.95). A single linear prior in the thirteen rates cannot be right at both ends of the
+board, and the rank map is the monotone nonlinearity that reconciles them. The upstream fix would
+be a prior that is itself nonlinear at the low end; the map on the finished rating is the same
+correction applied last.
+
+**On defense the curve is the ridge's, not a prior's.** The hybrid has no defensive prior and its
+defensive curve is the no-prior curve to two decimals (1.04 to 0.76): the worst defenders' ratings
+are about a quarter too extreme even with nothing but on-court data. The defensive penalty is
+0.29 of the offensive one (`lam_ratio_plugin`, chosen by REML), so defense is shrunk less, and the
+bad end -- where the noisy low-minute defenders sit -- is where that shows. The team-priced prior
+makes it worse (0.74-0.86).
+
+**The map and `c_def` add.** Against hybrid_xft at team-game level, K=2 / K=4:
+`c_def = 0.5` alone −0.44 / −0.32; the map alone −0.42 / −0.36; **both −0.91 / −0.74** (z −10.9 /
+−9.4, 27 of 28 seasons each), and at stint level −1.77 / −1.32 (28 and 27 of 28). Consensus, read
+once: the map costs nothing on top of either (0.894 vs 0.895 without `c_def`; 0.854 vs 0.854 with
+it), and `c_def` costs what it always costs (total 0.854, archetype bias 0.49). So the frontier now
+has two named points:
+
+* **the rating product:** hybrid + xPTS(ft) + rank map, `c_def = 0` -- consensus 0.894, game-level
+  error 112.83 / 112.68 (ships);
+* **the forecasting product:** the same with `c_def = 0.5` -- consensus 0.854, game-level error
+  112.34 / 112.30, the best prediction of held-out points this project has produced.
