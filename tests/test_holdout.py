@@ -114,6 +114,22 @@ def test_rank_calibration_sees_amplitude(results):
     assert abs(f(4.0) - 2.0) < 1.0                                # roughly halves
 
 
+def test_rank_map_corrects_a_doubled_system(results, world):
+    """RankMappedSystem with the doubled ratings' own rank table brings them back to the truth's scale,
+    with the map for each held-out season fitted on the other seasons."""
+    from eracoef.holdout import RankMappedSystem
+    ho, res = results
+    _, ctx, table = world
+    inner = TableSystem("double", table.assign(o=2 * table.o, d=2 * table.d))
+    mapped = RankMappedSystem("mapped", inner, ho.rank_)
+    res2 = Holdout.from_config(CFG).run([inner, mapped], ctx, verbose=False)
+    P = pooled(res2).set_index("system")
+    assert P.loc["mapped", "mse"] < P.loc["double", "mse"]
+    assert abs(P.loc["mapped", "scale_off"] - 1.0) < abs(P.loc["double", "scale_off"] - 1.0)
+    z = paired(res2, ref="double").set_index("system")
+    assert z.loc["mapped", "wins"] == 3
+
+
 def test_diagnostics_run(world):
     sim, ctx, table = world
     ctx.current_h = 2003

@@ -1,164 +1,142 @@
-# Handoff: the luck-adjusted target is finished, and half of it did not pay
+# Handoff: one evaluation system, a rank map that ships, and a shooter target that does not
 
-Written after the session that measured the untested `c_def` x xPTS combination, then built the
-stage 4 shot term, gated it, and measured it out of season — where it lost. `FINDINGS.md` section
-17 is the record; sections 13-16 are the previous session's. `HANDOFF_luck_archive.md` is the
-previous version of this file, `HANDOFF_hybrid_archive.md` and `HANDOFF_diagnosis_archive.md` the
-ones before.
+Written after the session that turned the out-of-season criterion into one module, built the
+shooter-level expected-points target with a shot-location curve and rejected it, and found and
+shipped the rank-calibration correction. `FINDINGS.md` section 18 is the record; sections 16-17
+are the two sessions before. `HANDOFF_shot_archive.md` is the previous version of this file.
 
-**Branch:** everything is on `hybrid-and-xpts`, uncommitted at the time of writing (see the file
-list in Part 3), and not merged to `main`. Pages serves `/docs` from `main`.
+**Branch:** everything is committed on `hybrid-and-xpts`; nothing merged to `main`. Pages serves
+`/docs` from `main`; `scripts/07_plots.py` has not been re-run on the new board.
 
 ---
 
 ## Part 1: where things stand
 
-### The chosen system is unchanged: hybrid + xPTS(ft), `c_def = 0`
+### The chosen system changed twice, both times by the criterion
 
-Nothing in this session moved the shipped rating. Two things were measured that had not been.
+**hybrid + xPTS(ft) + the rank map, `c_def = 0`.** `config.yaml` -> `ratings_prior` now carries
+`target: xpts_ft` (the free-throw-adjusted target the previous session chose but never wired into
+`08_ratings.py` -- the board had been on raw points) and `rank_map` (below). Consensus, read once:
+total 0.894 / offense 0.879 / defense 0.888, defensive spread ratio 1.15 (was 1.23), archetype bias
+0.18 (was 0.19). `tests/test_vs_consensus.py`: 10 passed, 1 xfailed, unchanged.
 
-**1. The combination (`scripts/42_defweight_xpts.py`).** The `c_def` sweep re-run on the
-free-throw-adjusted target, both aggregations, both K, consensus beside each row. 28 held-out
-seasons. Game level:
+### The evaluation system (`src/eracoef/holdout.py`, `scripts/45_holdout.py`)
 
-| target | c_def | K=2 | K=4 | consensus total | consensus defense | archetype bias |
-|---|---|---|---|---|---|---|
-| pts | 0 | 113.31 | 113.07 | **0.896** | **0.888** | **+0.195** |
-| xpts_ft | 0 | 113.24 | 113.04 | 0.895 | 0.888 | +0.190 |
-| pts | 0.5 | 112.89 | 112.76 | 0.854 | 0.839 | +0.498 |
-| xpts_ft | **0.5** | **112.81** | **112.73** | 0.854 | 0.841 | +0.495 |
-| xpts_ft | 0.75 | 112.85 | 112.74 | 0.824 | 0.804 | +0.572 |
+Everything is one call now. `Holdout.from_config(cfg).run(systems, ctx)` scores any `System`
+(`fit(train_seasons, ctx) -> Ratings`) on every held-out season at stint and team-game level,
+with paired tests, movers/exposure splits, rank calibration, the consensus read and two
+rating-semantics diagnostics. `45_holdout.py` is the single CLI (its docstring maps each deleted
+script to an invocation) and reproduces the old `38_yoy.py` to 1e-12. Scripts 38-42 and 44 are
+deleted. `scripts/48_ladder.py` applies the stop rules to any set of result files. Tests run
+against `simulate(rho=0.85, turnover=0.3)`, which now has persistent talent and roster churn.
 
-- The two gains add. Argmin interior in every row (0.75 stint, 0.50 game, both targets, both K).
-- **The knobs sit on different axes.** xPTS(ft) costs the consensus nothing; `c_def` costs exactly
-  what it cost before, at every target. A frontier, not a winner. The project ships a rating, so
-  `c_def` stays 0 and the luck adjustment was the direction to push.
+Two things learned building it, both in the code comments:
+- **One slope per decile is not identified** with five players a side (headcounts sum to a
+  constant, collinear with the intercept); the slope is a smooth curve in the rating.
+- **The level refit matters on the simulator** (`holdout.level`: "home" or "full"); on real data
+  the ratings were fit with the fixed block, so "home" stays the default.
 
-**2. Stage 4, the shot term (`src/eracoef/xpts.py`, `scripts/43_xpts_gate.py`,
-`scripts/44_yoy_shot.py`).** Built to the spec: condition on the possession's first attempt,
-marginalise everything downstream with the lineup's four cross-fitted factor rates, geometric
-closure with the turnover leak, per-era league constants from the counters, lineup-level multiplier
-clip, factor lambdas fixed at the 2024-26 selection. It lives at window-build time
-(`xpts.xpts_design`), with the rate fits cached per block in `data/xpts/` (443 MB, gitignored).
+### The rank map (ships)
 
-It **closes**: expected attempts within 0.4% of observed on every one of 112 training blocks,
-points ratio 0.994-0.999, no clipping, `mult` and `add` eFG variants indistinguishable. Stint sd
-63.6 → 27.8, team-game sd 12.9 → 9.2. `tests/test_xpts.py` checks the closure on simulated
-possessions.
+Out of season, the worst offensive decile wants its ratings multiplied by 0.77 and the best by
+1.01; defense the same in the good direction (0.78-0.84 for the worst, 1.05 for the best). Monotone
+through every decile, both K, z to -10. `RankMappedSystem` fits a monotone per-side curve on the
+pooled slopes leave-one-season-out and wins: team-game -0.41 per 100 (z -6.2, 26 of 28) at K=2,
+-0.36 (z -5.7, 25 of 28) at K=4; stint -0.31 / -0.28. It preserves every within-side rank, so it
+buys prediction (the same size as `c_def = 0.5` did) at no attribution cost. `08_ratings.py`
+applies it from `outputs/holdout_final_rank.parquet`; raw columns kept as `rating_*_raw`.
 
-It **loses**, out of season, everywhere:
+### The shooter-level target (negative, measured, done)
 
-| target (c_def 0, K=2) | stint | game | paired vs pts, game | sd_def of ratings |
-|---|---|---|---|---|
-| pts | 3627.97 | 113.31 | — | 1.00 |
-| xpts_ft | 3627.83 | 113.24 | −0.08 (z −2.2, 20/28) | 0.99 |
-| xshot mult | 3628.95 | 113.61 | +0.32 (z +1.8, 9/28) | **0.72** |
-| xshot, league make rates | 3631.90 | 115.23 | +1.96 (z +6.6, 2/28) | 0.61 |
-
-The ordering `pts < lineup-scaled < league-rate` is the mechanism: shot-making is a large real
-signal (about 15% of everything the ratings know), the lineup eFG fit recovers ~80% of it, and the
-luck removed does not pay for the rest. It shows on defense — defensive spread down 28%, offensive
-down 4% — because the eFG factor shrinks defense harder (`lam_ratio` 1.50), so shot suppression
-reaches the target through a heavily shrunk rate while the points RAPM reads it off the makes.
-
-**What generalises:** free-throw luck is separable because a free throw belongs to one identified
-player and no defender. Field-goal luck is not separable from skill at lineup level with these
-tools. The re-parameterisation trap the previous handoff named arrived in partial form: three
-quarters of expected points is `att1 x league make rate x lineup eFG`, and the lineup eFG is a
-shrunk estimate.
-
-**Stage 5 is off.** It was conditional on stage 4 paying.
+Built to the owner's spec: the shooter's own padded 2P%/3P%/FT% from the other half of the block,
+a per-season shot-distance curve (`shotcurve.py`), the counts by lineup slot in the stints (schema
+4, `SLOT_COUNTERS`), priced at window-build time (`xshoot.py`). Every gate passed. Every
+whole-target system loses (game level +1.5 to +2.4 per 100, z +5 to +8); splits with defense from
+points are flat. The padding constants explain it: k = 175 attempts for 2P%, 226 for 3P%, 24 for
+FT%. A half-season 3P% is trusted half-and-half with the league, so the expectation is mostly the
+league rate, and the league-rate variant had already lost in section 17. The location curve is
+worth 0.7 per 100 against the flat rate; pooling four seasons instead of two moves the gap from 1.71
+to 1.52. Keep the machinery (the slot counters cost nothing and the curve is right); do not
+rebuild the target with a different pooling.
 
 ---
 
 ## Part 2: what to do next
 
-There is no obvious next step on the target. If someone wants to keep pulling on it, in order:
-
-1. **The rebound piece alone.** Keep the realised first-attempt outcome, marginalise only the
-   continuation. Needs two counters the stints do not carry — points on the first attempt including
-   its free throws (`pts1`) and whether it produced a rebound chance (`chance1`) — so
-   `STINT_SCHEMA` 4 and the 45-minute rebuild. Then `xpts = pts1 + chance1 * r * V` with everything
-   already in `xpts.py`. This says whether offensive-rebound luck is separable even though shot luck
-   is not. It is the only untested piece with a mechanism argument for it (a rebound depends on ten
-   players' positions, not one player's release; but the OREB% factor has the best split-half
-   reliability of the four, 0.738, and it is the piece that is mostly about the lineup).
-2. **A partial adjustment** `y = pts - a * (pts - xpts)`, `a` in [0, 1]. Legal to select on the
-   criterion; report on seasons not used to select.
-3. Nothing else from the original luck plan. And-one luck and opponent free-throw luck are inside
-   the free-throw term's logic and would be marginal.
-
-Otherwise the open item is the same as before this work started: the one remaining xfail in
-`tests/test_vs_consensus.py` is an attribution defect on backup bigs, and no target change and no
-prior touches it.
-
-**Merging to `main`** is probably wanted; nothing in this session was merged or committed.
+1. **Merge and republish.** `scripts/07_plots.py` on the new board, merge to `main`.
+2. **The rank map's mechanism** is not separated: the bench box prior over-stating how bad a
+   low-usage player is, or the ridge's shrinkage being too light at the low end. Test by running
+   `--rank` on `rapm` (no prior) and `pi`: if the curve is flat without a prior, it is the prior.
+   Either way the map is the right fix for the product; this is about understanding it.
+3. **The `c_def` frontier** (section 17) is still available for a forecasting product; the rank
+   map and `c_def` are likely additive but untested together (`hybrid_xft_c0.5` + `--rankmap`).
+4. **Lineup-level calibration**: lineups predicted to be the worst score 0.7-0.8 of their deficit.
+   The player-level map fixes part of that; `--rank` on the mapped system shows what is left.
+5. The remaining xfail (backup bigs) is untouched by any of this.
 
 ---
 
 ## Part 3: state of the machinery
 
-### Built this session (all uncommitted on `hybrid-and-xpts`)
+### Built this session (all committed)
 
 | file | what |
 |---|---|
-| `src/eracoef/xpts.py` | stage 4: `league_constants`, `expected_points` (variants `mult`, `add`, `league`), `gates`, `lineup_rates` (cached), `xpts_design` |
-| `src/eracoef/design.py` | `WindowData.counters` (the offense's per-possession counters per row, plus `pts`, `poss`), `WindowData.with_target` |
-| `scripts/42_defweight_xpts.py` | the `c_def` x target sweep with consensus columns; `outputs/defweight_xpts*.parquet` |
-| `scripts/43_xpts_gate.py` | the closure gates on one window; `outputs/xpts_gate.parquet` |
-| `scripts/44_yoy_shot.py` | the out-of-season test by target; `outputs/yoy_shot.parquet` (full run), `outputs/yoy_shot_league.parquet` (the diagnostic), `outputs/yoy_shot_gates.parquet` |
-| `tests/test_xpts.py` | 6 tests; the suite is 42 passed, 1 xfailed |
-| `HANDOFF_luck_archive.md` | the previous handoff |
+| `src/eracoef/holdout.py` | the system: Context, PluginSystem / SplitSystem / MappedSystem / RankMappedSystem / TableSystem, predict_season, score, splits, Holdout.run, pooled / paired / report, rank_calibration / pooled_rank / fit_rank_map, vs_consensus, team_residual, replacement_quality |
+| `src/eracoef/pad.py` | `shrink`, `mom_k`, `pad_rate`: the one padding helper; `ft_padding` and `BoxExposure` delegate |
+| `src/eracoef/shotcurve.py` | per-season make probability by distance; `shot_bin` is the one location rule; cached in `data/shotcurve/` |
+| `src/eracoef/xshoot.py` | shooter-level pricing of the slot counters; `TARGET_REGISTRY` |
+| `src/eracoef/stints.py` | schema 4: `SLOT_COUNTERS`, `pts1`, `chance1`, stored `half`, per-game shots table (`{season}_{phase}_shots.parquet`) |
+| `src/eracoef/design.py` | counters carry the slot columns, player ids by slot and the half; `_order_games` uses the stored half |
+| `src/eracoef/simulate.py` | `rho`, `turnover`; `team` in the truth |
+| `scripts/45_holdout.py` | the CLI; `--rankmap=<rank parquet>` adds `rankmap_<system>` |
+| `scripts/46_xshoot_gate.py`, `47_shotcurve_gate.py`, `48_ladder.py` | the gates and the verdict table |
+| `scripts/08_ratings.py` | `ratings_prior.target`, `ratings_prior.rank_map` |
+| `tests/test_holdout.py`, `test_pad.py`, `test_shotcurve.py`, `test_xshoot.py`, `test_stints.py` | 60+ tests, 1 xfail |
 
 ### Settled, do not redo
 
-Everything in the previous handoff's list still holds (attempt definition, the `shift(-1)`
-artefact, four-factor reliability, the estimated O/D asymmetry, FT padding k, the booster). Added:
+- Everything in the previous two handoffs' lists still holds.
+- **Shooter-level expectation loses at every pooling, with or without location.** Measured. The
+  padding constants are the reason and they are properties of the sport.
+- **An alignment is a scalar on the level, never an affine.** A row-level affine has slope ~0.6
+  and is a partial shrink of the target in disguise, firing in some seasons and not others.
+- **The stored half and the design's half are identical by construction** (`stints.assign_halves`
+  = `design._order_games`); a game that produced no stints is skipped by both.
+- **The per-bin curve gate is per season and per shot value**, unlocated cells included; the
+  unlocated-twos cell is heaves (2% make rate) and is padded lightly for that reason.
 
-- **The shot term does not pay, and the reason is measured** (Part 1). Do not rebuild it with a
-  different eFG scaling — `mult` and `add` are identical to four figures, neither clips.
-- **The closure itself is right.** Attempt and points closures hold per season and out of sample
-  with no calibration. If a future variant misses the band, the variant is wrong, not the anchors.
-- **Factor lambdas are fixed** (`xpts.FIXED_LAMBDA`, from `scripts/37_factors.py`). Re-selecting per
-  block would make the target a function of the block.
-- **`c_def` and xPTS are orthogonal knobs**: one trades prediction against attribution, the other is
-  free on attribution. Consensus columns at a given `c_def` are the same to three decimals
-  whichever target sits under them.
+### Traps specific to this codebase (added)
 
-### Traps specific to this codebase
-
-All of the previous list still applies (grid-edge argmax, `STINT_SCHEMA`, `nohup` survivors,
-`w` is not possessions, never write per-player factor effects). Added:
-
-- **A bug in the closure can leave the attempt closure exact while the points closure is off.** The
-  first version of `xpts.py` had the continuation count right (multiplier gate passed) and the
-  continuation points 2x too large (points ratio 1.12). Gate both, separately, always.
-- **A per-row multiplier clip on the realised bucket mix clips the wrong thing.** Short stints with
-  one three-point attempt and a strong rebounding lineup hit the band at 0.6%; the clip belongs on
-  the lineup's continuation factor, not the row.
-- **`build_window` in-process caches stints; `xpts_design` caches rates on disk** by block label,
-  with `+`-joined labels for a block with a hole (`1997+1999`). The cache checks row count and stint
-  indices, so a stale file raises rather than being reused, but a change to the factor design or
-  lambdas needs `data/xpts/` deleted by hand.
-- **The two idle `python.exe` processes** from 9/3 23:25 (pids 43140/63880, ~2 s CPU total) are not
-  a runaway job; they were left alone.
+- **Background Bash has a 10-minute wrapper limit.** Anything longer must be `nohup ... &` from a
+  subshell, watched with a `Monitor` that checks the pid via `ps -W` (not `tasklist /FI`, which
+  Git Bash mangles into a path). The stint rebuild is ~45 min; the ladder ~6 min per K.
+- **`ps -W | grep name` does not see arguments**; check by pid, or via PowerShell's
+  `Get-CimInstance Win32_Process` with `$_.CommandLine`.
+- **The stint frames are ~2x wider now** (156 slot columns). `windows._STINT_CACHE` holds every
+  season loaded in-process; a 28-season run fits, but do not raise `Context.cache_size` casually.
+- **`Ratings.aligned` merges on player_id**; with `player_unit: season` a block has one rating per
+  player-season and `ratings_from_fit` pools them by possessions. Real data uses `window`.
+- **The two idle `python.exe` from 9/3** are still there and still idle.
 
 ### Verification
 
 ```
-.venv/Scripts/python -m pytest tests -q                       # 42 passed, 1 xfailed
-.venv/Scripts/python scripts/43_xpts_gate.py 2024-2026        # ~1 s with the rate cache, ~1 min without
-.venv/Scripts/python scripts/42_defweight_xpts.py 1998 2025 --k=2,4     # ~8 min
-.venv/Scripts/python scripts/44_yoy_shot.py 1998 2025 --k=2,4 --c=0,0.5 # ~10 min with cache; overwrites outputs/yoy_shot.parquet
+.venv/Scripts/python -m pytest tests -q                                   # 60+ passed, 1 xfailed
+.venv/Scripts/python scripts/47_shotcurve_gate.py                         # ~3 min; all 30 seasons within 2 points
+.venv/Scripts/python scripts/46_xshoot_gate.py 2024-2026                  # ~5 s with the rebuilt stints
+.venv/Scripts/python scripts/45_holdout.py --systems=hybrid,hybrid_xft --k=2,4 --rank --consensus --tag=x   # ~5 min
+.venv/Scripts/python scripts/45_holdout.py --systems=hybrid_xft,rankmap_hybrid_xft --rankmap=outputs/holdout_final_rank.parquet --k=2,4 --tag=y
+.venv/Scripts/python scripts/48_ladder.py outputs/holdout_ladder_k2.parquet outputs/holdout_ladder_k4.parquet
+.venv/Scripts/python scripts/08_ratings.py && .venv/Scripts/python -m pytest tests/test_vs_consensus.py -q
 ```
 
-Never bare `python`. Run heavy numpy jobs one at a time. Write source files with the Write/Edit
-tools; short `cat >> file << 'EOF'` appends did work this session.
+Never bare `python`. Heavy numpy jobs one at a time; the runner is fast enough (~10 s per held-out
+season for ten systems) that most comparisons fit in a few minutes.
 
-### The standing warning, earned again
+### The standing warning, kept
 
-The previous handoff predicted stage 4 would be "the remaining and larger piece". It was larger,
-and it went the other way. The closure was specified correctly, built correctly, gated correctly,
-and lost — and the loss was only visible in the out-of-season test, never in any within-window
-gate. The gates say the target is a good expectation; only prediction says whether an expectation
-is what the ratings should be fit to. Measure first.
+Three things this session were asserted and then measured the other way: that pooling more
+seasons would rescue the shooter rate (it moved the gap by 0.2 of 1.7), that one slope per decile
+would measure rank calibration (collinear), and that the simulator's true ratings would score at
+1.0 (its process was not stationary). Each was caught by a number. Measure first.
