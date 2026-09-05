@@ -1108,3 +1108,66 @@ a property of the training block. `xshoot.TARGET_REGISTRY` has five targets: `xs
 `xshoot_x1` (each season's own rate rather than the block's), and `xcont` / `xcont_lineup` (the
 first attempt's expectation plus its expected continuation under the validated closure, with the
 league or the lineup offensive-rebound rate).
+
+### The ladder: the shooter-level target loses, and the reason is the padding constants
+
+`scripts/45_holdout.py`, ten systems, 28 held-out seasons, both K, scored against actual points;
+`scripts/48_ladder.py` applies the stop rules (wins = z at or below -2 and at least 60% of seasons
+at both K; loses = z at or above +2 at both K; else flat). Reference: the chosen system,
+hybrid + xPTS(ft). Team-game level, points per 100:
+
+| system | what it is | K=2 | K=4 | vs ref K=2 | vs ref K=4 | verdict |
+|---|---|---|---|---|---|---|
+| hybrid | actual points | 113.31 | 113.07 | +0.08 (z +2.2, 8/28) | +0.03 (z +1.1, 12/28) | flat |
+| hybrid_xft | **the reference** | 113.24 | 113.04 | | | |
+| hybrid_xshoot | shooter's rate x location curve | 114.90 | 114.53 | +1.71 (z +5.9, 2/28) | +1.52 (z +5.1, 5/28) | **loses** |
+| hybrid_xshoot_flat | shooter's padded 2P%/3P%, no curve | 115.57 | 115.25 | +2.39 (z +7.7, 1/28) | +2.25 (z +7.0, 1/28) | **loses** |
+| hybrid_xshoot_x1 | as xshoot, each season's own rate | 114.98 | 114.65 | +1.79 (z +6.1, 2/28) | +1.65 (z +5.4, 3/28) | **loses** |
+| hybrid_xcont | xshoot + expected continuation, league OREB% | 115.50 | 115.15 | +2.33 (z +6.7, 2/28) | +2.15 (z +6.2, 3/28) | **loses** |
+| hybrid_xcont_lineup | the same with the lineup's OREB% | 114.52 | 114.08 | +1.33 (z +4.9, 4/28) | +1.07 (z +3.8, 4/28) | **loses** |
+| split_xshoot | offense from xshoot, defense from points | 113.16 | 112.91 | −0.07 (z −0.7, 14/28) | −0.13 (z −1.3, 18/28) | flat |
+| split_xshoot_flat | offense from the flat target | 113.09 | 112.94 | −0.14 (z −1.4, 16/28) | −0.09 (z −0.8, 14/28) | flat |
+| split_xcont | offense from xcont | 113.18 | 112.86 | −0.06 (z −0.5, 15/28) | −0.18 (z −1.4, 15/28) | flat |
+
+At stint level every system including the splits loses (the splits at z +3.4 to +7.9). Every gate
+passed on every training block before any of this was run.
+
+What the numbers say, in order:
+
+* **Every whole-target shooter system loses, by more than the stage 4 lineup term did** (+1.5 to
+  +2.4 against +0.32 in section 17). The defensive amplitude diagnostic names the mechanism: the
+  held-out seasons want the defensive ratings from these targets multiplied by **1.17 to 1.56**
+  (`scale_def`, against 0.93-0.98 for the points targets). A shooter-level expectation contains no
+  defence at all -- the defenders' effect on the make is exactly what it marginalises -- so the
+  defensive ratings fit to it are far too narrow. That is the asymmetry the previous plan wrote
+  down (offense keeps shooter skill, defense loses shot suppression) and here it is at full size.
+* **Putting the defence back does not make a winner.** The split systems recover the defensive
+  scale (0.92-0.95) and land flat against the reference at game level, and lose at stint level. So
+  the offensive ratings fit to the shooter-level target are not better predictors than those fit to
+  actual points either. Their own diagnostic says why: `scale_off` is **1.03 to 1.14** for every
+  luck-adjusted offense against 0.93-0.95 for points -- the target's offensive spread is too narrow
+  too, because the shooter's padded other-half rate sits closer to the league than his makes do.
+* **The padding constants are the whole story.** `pad.mom_k` on the block's shooters gives k = 175
+  attempts for 2P%, 226 for 3P%, and 24 for FT%. A regular's half-season is 150-300 field-goal
+  attempts of each kind, so his other-half 3P% is trusted about half-and-half with the league; his
+  free-throw percentage is trusted almost entirely on 30 attempts. That is why the free-throw term
+  is the one luck adjustment that has ever paid here, and why `xshoot_flat` (+2.39) lands where
+  section 17's league-rate variant did (+1.96): a heavily padded shooter rate IS mostly the league
+  rate.
+* **The location curve is worth 0.7 points per 100** (`xshoot` against `xshoot_flat`, both K),
+  so the classifier does what it was built to do; it is the padding it multiplies that is the
+  limit. Pooling four seasons instead of two moves the whole-target gap from 1.71 to 1.52, and
+  each season's own rate (`x1`) is 0.08 worse than the block's: more attempts help, in proportion
+  to the padding they remove, and not nearly enough.
+* **The continuation term follows the first attempt.** `xcont` is `xshoot` plus rebound luck
+  removed; it loses by more (+2.33), and the lineup OREB% version by less (+1.33), consistent with
+  section 17's result that the lineup's rebounding rate carries signal. In split form it is as
+  flat as the others.
+
+**Verdict under the stop rules: the shooter-level expectation is a negative result, at every
+pooling and with or without the location curve; the chosen system is unchanged, hybrid + xPTS(ft)
+at `c_def = 0`.** What is now measured rather than argued: a make is a property of shooter, spot
+and defenders; the free throw is the only one of these where the shooter's own rate is sharp enough
+(k = 24) and the defence absent, so it is the only one where an expectation beats the realised
+outcome as a target. A two- or three-point attempt needs about 200 of its kind before the shooter's
+rate is worth as much as the league's, and there is no half-season in which most players have them.
