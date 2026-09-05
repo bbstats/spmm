@@ -116,6 +116,27 @@ for w in window_seasons(cfg):
                          pd.concat([season_names(s, "RS", cfg) for s in seasons], ignore_index=True))
     r = player_ratings_table(wd, beta, cfg, seasons, beta_po=beta_po, names=names,
                              prior_offset=offset_for(wd, lab) if USE_BOOST else None)
+    # A second fit for the DEFENSIVE side on its own target (config ratings_prior.defense_target):
+    # "x3def" replaces every opponent three-point make by 3 x the shooter's padded 3P%, so the
+    # defenders' coefficients are not charged for whether an open three dropped (FINDINGS.md 18).
+    # Offense keeps the fit above.  Every *_def column comes from this fit; totals are re-summed.
+    DEF_TARGET = PRIOR.get("defense_target")
+    if DEF_TARGET:
+        from eracoef.xshoot import DEFENSE_TARGETS
+        wd_pts = wd if PRIOR.get("target", "pts") == "pts" else build_window(seasons, cfg)
+        wd_d, rep_d = DEFENSE_TARGETS[DEF_TARGET](seasons, cfg, wd_pts)
+        r_d = player_ratings_table(wd_d, beta, cfg, seasons, beta_po=beta_po, names=None,
+                                   prior_offset=offset_for(wd_d, lab) if USE_BOOST else None)
+        dcols = [c for c in r_d.columns if "_def" in c]
+        r = r.drop(columns=dcols).merge(r_d[["player_id", *dcols]], on="player_id", how="left")
+        for part in ("prior", "u", "u_plain", "rapm_mm"):
+            r[f"{part}_total"] = r[f"{part}_off"] + r[f"{part}_def"]
+        if "prior_total_po" in r.columns:
+            r["prior_total_po"] = r.prior_off_po + r.prior_def_po
+            r["rapm_mm_total_po"] = r.rapm_mm_off_po + r.rapm_mm_def_po
+        print(f"    defense from target {DEF_TARGET}: k3 = {rep_d.get('k3', float('nan')):.0f}, "
+              f"3PM ratio {rep_d['gates'].r3.mean():.4f}", flush=True)
+        del wd_d
     out.append(r)
     print(f"  {lab}: {len(r)} players ({time.time() - t0:.0f}s)", flush=True)
     del wd

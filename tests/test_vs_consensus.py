@@ -137,8 +137,13 @@ def test_defensive_spread_is_calibrated(board):
 
 
 def test_defense_agrees_with_the_consensus(board):
+    """The blend's defense is 90% raw-points metrics (xRAPM 0.5, EPM 0.4) and 10% luck-adjusted RAPM.
+    The board's defense is fit with opponent three-point makes replaced by the shooter's expected
+    rate, which every luck-adjusted public metric agrees with MORE and every raw-points one LESS
+    (FINDINGS.md section 18), so 0.81 against this blend is the expected level, not a regression;
+    0.888 was the actual-points board."""
     rho = spearmanr(board.rating_def, board.adj_defense).statistic
-    assert rho >= 0.82, f"defensive rank agreement is {rho:.3f}"
+    assert rho >= 0.78, f"defensive rank agreement is {rho:.3f}"
 
 
 def test_no_archetype_bias_overall(board):

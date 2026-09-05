@@ -176,6 +176,25 @@ for name, _, con_c in PAIRS:
             row.append(f"{lab} vs consensus {m[c].corr(m[con_c]):+.3f}")
     print(f"  {name:6s} " + "   ".join(row))
 
+# ------------------------------------------------------------------ 7. every public metric, one at a time
+# The blend above is the owner's own mix (defense: 0.5 xDRAPM + 0.4 EPM + 0.1 LA-RAPM, all raw-points
+# but the last).  As sanity checks, agree with each component separately, so a luck adjustment that
+# moves the board toward LA-RAPM and LEBRON and away from xRAPM and EPM reads as what it is.
+IM = ROOT / "data" / "external" / "impact_metrics_2526.csv"
+if IM.exists():
+    from scipy.stats import spearmanr
+    im = pd.read_csv(IM)
+    name_col = [c for c in im.columns if "name" in c.lower()][0]
+    im["key"] = im[name_col].map(norm)
+    j = m.merge(im, on="key", how="inner", suffixes=("", "_im"))
+    comps = {"off": ["pred_oepm", "xORAPM", "td_laorapm", "td_orapm", "OLEBRON", "ODRIP", "ODPM", "LA_ORAPM"],
+             "def": ["pred_depm", "xDRAPM", "td_ladrapm", "td_drapm", "DLEBRON", "DDRIP", "DDPM", "LA_DRAPM", "xDLEBRON"]}
+    print(f"\n=== 7. against each public metric separately (Spearman, {len(j)} players)")
+    for side, cols in comps.items():
+        ours = j[f"rating_{side}"]
+        row = [f"{c} {spearmanr(ours, j[c].astype(float), nan_policy='omit').statistic:+.3f}" for c in cols if c in j.columns]
+        print(f"  {side:4s} " + "  ".join(row))
+
 m.to_parquet(OUT / "vs_consensus.parquet", index=False)
 m.round(3).to_csv(OUT / "csv" / "vs_consensus.csv", index=False)
 print("\nwrote outputs/vs_consensus.parquet and outputs/csv/vs_consensus.csv")

@@ -1288,3 +1288,59 @@ has two named points:
   error 112.83 / 112.68 (ships);
 * **the forecasting product:** the same with `c_def = 0.5` -- consensus 0.854, game-level error
   112.34 / 112.30, the best prediction of held-out points this project has produced.
+
+### Opponent three-point luck out of the defensive coefficients: it wins, and it ships
+
+The owner's proposal, informed by the literature: for the DEFENSIVE coefficients only, replace
+every opponent three-point make by 3 x the shooter's padded 3P%. Team opponent 3P% stabilises only
+at 4,000-7,000 attempts (Nylon Calculus, 2018), against about 2,000 in a record season, so the
+defenders' effect on whether a three drops is almost entirely noise. The shooter's rate is his
+3P% from the OTHER half of the block padded toward the league with k = 450 attempts (the split-half
+reliability of shooters with 100-400+ attempts per half on our data, 310-520; Blackport's 2014
+figure of 750 by Kuder-Richardson is the same order; the method-of-moments 226 of the ladder was
+pulled down by low-volume shooters). Not leave-one-game-out: a leave-one-out mean is negatively
+correlated with the left-out outcome by 1/(N-1) -- "distributional bias", Science Advances 2025 --
+and the owner had seen exactly that artifact; the other half of the block has none. Offense keeps
+the free-throw target; the two fits are joined by `SplitSystem`.
+
+| system | game K=2 | game K=4 | vs hybrid_xft, game | vs hybrid_xft, stint |
+|---|---|---|---|---|
+| def3_p0 (other half of the block) | 112.86 | 112.56 | −0.39 (z −4.4, 22/28) / −0.47 (z −5.1, 25/28) | −0.69 (26/28) / −0.83 (25/28) |
+| def3_p1 (+1 season before the block) | 112.86 | 112.56 | same to 0.001 | same |
+| def3_p2 (+2) | 112.85 | 112.56 | same | same |
+| rankmap_def3_p0 | **112.54** | **112.33** | −0.70 (z −6.8, 26/28) / −0.70 (z −6.3, 25/28) | −1.08 / −1.08 |
+
+Wins at both levels and both K; the map on top adds its usual −0.3 to −0.4; seasons before the
+block change nothing (with k = 450 the pad dominates a bench shooter and a starter's other half is
+already 400-600 attempts). The defensive rank curve flattens from 1.05 / 0.91 / 0.78 (best /
+middle / worst defenders) to 1.16 / 1.03 / 0.93: part of the exaggeration at the bad end was
+opponent three-point luck.
+
+**Consensus, read once: defense 0.888 -> 0.814**, total 0.895 -> 0.882, offense unchanged. This is
+the blend's composition. The owner's defensive blend is 0.5 xRAPM + 0.4 EPM + 0.1 LA-RAPM, so 90%
+of it is fit on raw points. Against each component separately (475 players, Spearman):
+
+| component | fit on | actual-points defense | x3def defense |
+|---|---|---|---|
+| td_drapm | raw | 0.933 | 0.818 |
+| xDRAPM | raw | 0.907 | 0.800 |
+| pred_depm (EPM) | raw | 0.844 | 0.794 |
+| td_ladrapm | luck-adjusted | 0.720 | **0.758** |
+| xDLEBRON | luck-adjusted | 0.589 | **0.636** |
+| DLEBRON | luck-adjusted | 0.671 | **0.704** |
+| DDPM | raw | 0.644 | 0.644 |
+
+Every raw-points metric agrees less, every luck-adjusted metric more. On the 2024-26 roster the
+risers are drop-coverage centers (Sabonis 197th -> 56th, Valanciunas 302nd -> 80th, Poeltl 94th ->
+15th, Sengun, Claxton) and the fallers are perimeter role players (Jovic 48th -> 310th, Naji
+Marshall, Shamet, Morant); the top three (Wembanyama, Gobert, Caruso) do not move. So the removed
+component is opponent three-point luck plus whatever part of conceding open threes is scheme; the
+criterion says the scheme part does not repeat out of season, LA-RAPM and LEBRON agree, xRAPM and
+EPM charge for it. The owner's ruling: the blend is a sanity check, the game-level criterion is the
+test. The lineup three-point factor (shooter rate x the defensive lineup's fitted 3P% factor) is
+written down as the check on the scheme part, not built.
+
+**The board is now: offense from the free-throw target, defense from x3def, rank map on top,
+`c_def = 0`** (`config.yaml` -> `ratings_prior.defense_target`, `rank_map` on `def3_p0`;
+`08_ratings.py` runs two fits per window). `22_vs_consensus.py` section 7 prints the
+per-component agreement so the next luck adjustment is read the same way.
